@@ -1,3 +1,4 @@
+use base64::{prelude::BASE64_STANDARD, Engine};
 use sha2::Digest;
 use std::io::Cursor;
 use uuid::Uuid;
@@ -19,13 +20,26 @@ pub fn new_snapshot_and_notification(
     let random = generate_random_bytes();
 
     let base_uri = format!("{}{}/{}", "https://", domain, base_rrdp_dir);
-    let snapshot_uri = format!("{}{}/{}/{}/snapshot.xml", &base_uri, &session_id, serial.to_string(), random);
+    let snapshot_uri = format!(
+        "{}{}/{}/{}/snapshot.xml",
+        &base_uri,
+        &session_id,
+        serial.to_string(),
+        random
+    );
     let notification_uri_l = format!("{}notification.xml", base_rrdp_dir);
-    let snapshot_uri_l = format!("{}{}/{}/{}/snapshot.xml", base_rrdp_dir, &session_id, serial.to_string(), random);
+    let snapshot_uri_l = format!(
+        "{}{}/{}/{}/snapshot.xml",
+        base_rrdp_dir,
+        &session_id,
+        serial.to_string(),
+        random
+    );
 
     let snap = create_snapshot(serial, &session_id, publish, withdraws).unwrap();
     let snap_hash = get_hash(snap.clone());
-    let notif = create_notification(serial, &session_id, (&snapshot_uri, &snap_hash), None).unwrap();
+    let notif =
+        create_notification(serial, &session_id, (&snapshot_uri, &snap_hash), None).unwrap();
 
     (snapshot_uri_l, snap, notification_uri_l, notif)
 }
@@ -48,11 +62,23 @@ pub fn new_added_deltas(
         let parsed_delta = create_delta(serial, session_id, delta.0, delta.1).unwrap();
 
         let random = generate_random_bytes();
-        let delta_uri = format!("{}{}/{}/{}/delta.xml", &base_uri, &session_id, serial.to_string(), random);
+        let delta_uri = format!(
+            "{}{}/{}/{}/delta.xml",
+            &base_uri,
+            &session_id,
+            serial.to_string(),
+            random
+        );
         let delta_hash = get_hash(parsed_delta.clone());
         delta_for_notification.push((serial.to_string(), delta_uri, delta_hash));
 
-        let delta_uri_l = format!("{}{}/{}/{}/delta.xml", base_rrdp_dir, &session_id, serial.to_string(), random);
+        let delta_uri_l = format!(
+            "{}{}/{}/{}/delta.xml",
+            base_rrdp_dir,
+            &session_id,
+            serial.to_string(),
+            random
+        );
         parsed_deltas.push((delta_uri_l, parsed_delta));
         serial += 1;
     }
@@ -62,15 +88,39 @@ pub fn new_added_deltas(
 
     let random = generate_random_bytes();
 
-    let snapshot_uri = format!("{}{}/{}/{}/snapshot.xml", &base_uri, &session_id, serial.to_string(), random);
+    let snapshot_uri = format!(
+        "{}{}/{}/{}/snapshot.xml",
+        &base_uri,
+        &session_id,
+        serial.to_string(),
+        random
+    );
     let notification_uri_l = format!("{}notification.xml", base_rrdp_dir);
-    let snapshot_uri_l = format!("{}{}/{}/{}/snapshot.xml", base_rrdp_dir, &session_id, serial.to_string(), random);
+    let snapshot_uri_l = format!(
+        "{}{}/{}/{}/snapshot.xml",
+        base_rrdp_dir,
+        &session_id,
+        serial.to_string(),
+        random
+    );
 
     let snap = create_snapshot(serial, &session_id, snap_publish, snap_withdraws).unwrap();
     let snap_hash = get_hash(snap.clone());
-    let notif = create_notification(serial, &session_id, (&snapshot_uri, &snap_hash), Some(delta_for_notification)).unwrap();
+    let notif = create_notification(
+        serial,
+        &session_id,
+        (&snapshot_uri, &snap_hash),
+        Some(delta_for_notification),
+    )
+    .unwrap();
 
-    (snapshot_uri_l, snap, notification_uri_l, notif, parsed_deltas)
+    (
+        snapshot_uri_l,
+        snap,
+        notification_uri_l,
+        notif,
+        parsed_deltas,
+    )
 }
 
 pub fn create_snapshot(
@@ -80,7 +130,9 @@ pub fn create_snapshot(
     withdraws: Vec<String>,
 ) -> xml::writer::Result<Vec<u8>> {
     let mut output = Cursor::new(Vec::new());
-    let mut writer = EmitterConfig::new().perform_indent(true).create_writer(&mut output);
+    let mut writer = EmitterConfig::new()
+        .perform_indent(true)
+        .create_writer(&mut output);
 
     writer.write(
         XmlEvent::start_element("snapshot")
@@ -92,7 +144,7 @@ pub fn create_snapshot(
 
     for (uri, data) in publishes {
         writer.write(XmlEvent::start_element("publish").attr("uri", &uri))?;
-        writer.write(XmlEvent::characters(&base64::encode(data)))?;
+        writer.write(XmlEvent::characters(&BASE64_STANDARD.encode(data)))?;
         writer.write(XmlEvent::end_element())?;
     }
 
@@ -114,7 +166,9 @@ pub fn create_notification(
     deltas_serial_uri_hash: Option<Vec<(String, String, String)>>,
 ) -> xml::writer::Result<Vec<u8>> {
     let mut output = Cursor::new(Vec::new());
-    let mut writer = EmitterConfig::new().perform_indent(true).create_writer(&mut output);
+    let mut writer = EmitterConfig::new()
+        .perform_indent(true)
+        .create_writer(&mut output);
 
     writer.write(
         XmlEvent::start_element("notification")
@@ -154,7 +208,9 @@ pub fn create_delta(
     withdraws: Vec<String>,
 ) -> xml::writer::Result<Vec<u8>> {
     let mut output = Cursor::new(Vec::new());
-    let mut writer = EmitterConfig::new().perform_indent(true).create_writer(&mut output);
+    let mut writer = EmitterConfig::new()
+        .perform_indent(true)
+        .create_writer(&mut output);
 
     writer.write(
         XmlEvent::start_element("delta")
@@ -166,7 +222,7 @@ pub fn create_delta(
 
     for (uri, data) in publishes {
         writer.write(XmlEvent::start_element("publish").attr("uri", &uri))?;
-        writer.write(XmlEvent::characters(&base64::encode(data)))?;
+        writer.write(XmlEvent::characters(&BASE64_STANDARD.encode(data)))?;
         writer.write(XmlEvent::end_element())?;
     }
 
@@ -285,7 +341,7 @@ pub fn parse_snapshot(xml_data: &str) -> Option<XMLSnapshot> {
         let data_raw = c.text();
         let data_raw = data_raw.trim();
         let data_raw = data_raw.replace("\n", "");
-        let data = base64::decode(data_raw).unwrap_or(vec![]);
+        let data = BASE64_STANDARD.decode(data_raw).unwrap_or(vec![]);
 
         if data.is_empty() {
             println!("c {:?}", c);

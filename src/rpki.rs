@@ -4,8 +4,15 @@ use crate::{
     rpki_utils::{byt_to_in, parse_ip},
     tree_parser::Tree,
 };
-use base64::decode;
+use base64::{prelude::BASE64_STANDARD, Engine};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use regex::Regex;
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    hash::{Hash, Hasher},
+};
 
 use std::error::Error;
 pub struct RpkiObject {
@@ -16,6 +23,16 @@ pub struct RpkiObject {
 impl RpkiObject {
     pub fn new(content: Tree, typ: String) -> RpkiObject {
         RpkiObject { content, typ }
+    }
+
+    pub fn get_roa_vrps(&self) -> Option<Vec<String>> {
+        let asn = self.get_roa_asn()?;
+        let ips = self.get_roa_ips_string();
+        let mut vrps = vec![];
+        for ip in ips {
+            vrps.push(format!("{},{}", asn, ip));
+        }
+        Some(vrps)
     }
 
     pub fn get_roa_asn(&self) -> Option<u64> {
@@ -48,14 +65,21 @@ impl RpkiObject {
             for full_ip in &self.content.tokens[&child_node.children[1]].children {
                 let nod = self.content.get_node(*full_ip).unwrap();
                 if nod.children.len() < 1 {
-                    println!("No children in IP node {:?}", base64::encode(self.content.encode()));
+                    println!(
+                        "No children in IP node {:?}",
+                        BASE64_STANDARD.encode(self.content.encode())
+                    );
                     continue;
                 }
                 let ip_nod = self.content.get_node(nod.children[0]).unwrap();
                 let ip_raw = ip_nod.data.clone();
                 let padding = ip_raw[0];
 
-                let ip = parse_ip(&ip_raw[1..].to_vec(), family.try_into().unwrap(), padding as usize);
+                let ip = parse_ip(
+                    &ip_raw[1..].to_vec(),
+                    family.try_into().unwrap(),
+                    padding as usize,
+                );
                 let ml;
                 if nod.children.len() == 2 {
                     let child = self.content.get_node(nod.children[1]).unwrap();
@@ -65,10 +89,16 @@ impl RpkiObject {
                         ml = byt_to_in(child.data.clone()).try_into().unwrap_or(0);
                     };
                 } else {
-                    ml = ip.split("/").collect::<Vec<&str>>()[1].parse::<u8>().unwrap();
+                    ml = ip.split("/").collect::<Vec<&str>>()[1]
+                        .parse::<u8>()
+                        .unwrap();
                 }
                 if ml == 0 {
-                    println!("ML is 0 {}, child len {:?}", ip, self.content.get_node(nod.children[1]).unwrap());
+                    println!(
+                        "ML is 0 {}, child len {:?}",
+                        ip,
+                        self.content.get_node(nod.children[1]).unwrap()
+                    );
                 }
                 let final_ip = ip + "," + &ml.to_string();
                 ips.push(final_ip);
@@ -90,7 +120,10 @@ impl RpkiObject {
     }
 
     pub fn get_cert_is_root(&self) -> bool {
-        return self.content.get_node_by_label("authorityKeyIdentifierExtID").is_none();
+        return self
+            .content
+            .get_node_by_label("authorityKeyIdentifierExtID")
+            .is_none();
     }
 
     pub fn get_cert_notification_uri(&self) -> Option<String> {
@@ -244,7 +277,7 @@ impl TAL {
         }
 
         // Decode the certificate
-        let certificate = decode(certificate_base64)?;
+        let certificate = BASE64_STANDARD.decode(certificate_base64)?;
 
         // Return the parsed TAL struct
         Ok(TAL {
@@ -253,4 +286,472 @@ impl TAL {
             certificate,
         })
     }
+}
+
+pub fn ipstring_to_bytes(ip: &str, family: &IPType) -> Vec<u8> {
+    if family == &IPType::V4 {
+        let parts = ip
+            .split(".")
+            .map(|x| x.parse::<u8>().unwrap_or(0))
+            .collect::<Vec<u8>>();
+        return parts;
+    } else {
+        let mut parts = vec![];
+        for el in ip.split(":") {
+            if el.is_empty() {
+                parts.push(0);
+                parts.push(0);
+            } else {
+                let el = el.parse::<u16>().unwrap();
+                parts.push((el >> 8) as u8);
+                parts.push((el & 0xFF) as u8);
+            }
+        }
+        return parts;
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Metadata {
+    counts: u32,
+    generated: u64,
+    valid: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct JsonRoa {
+    pub prefix: String,
+    pub max_length: u8,
+    pub asn: String,
+    pub ta: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct VrpsData {
+    metadata: Metadata,
+    roas: Vec<JsonRoa>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub enum IPType {
+    V4,
+    V6,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct IPEntry {
+    pub ip_s: String,
+    pub ip: Vec<u8>,
+    pub prefix: u8,
+    pub max_len: u8,
+    pub typ: IPType,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Entry {
+    pub ip: IPEntry,
+    pub asn: u32,
+}
+
+impl Entry {
+    pub fn entries_to_vrp_format(entries: &Vec<Entry>) -> String {
+        let mut res = String::new();
+        for entry in entries {
+            res.push_str(&format!(
+                "{}/{} => AS{}\n",
+                entry.ip.ip_s, entry.ip.prefix, entry.asn
+            ));
+        }
+        res
+    }
+
+    pub fn from_roa_str(raw: &str) -> Option<Entry> {
+        if !raw.contains("=>") {
+            return None;
+        }
+
+        let s = raw.split("=>").collect::<Vec<&str>>();
+
+        let asn_raw = s[1];
+        let mut asn_raw = asn_raw.trim();
+        if asn_raw.starts_with("AS") {
+            asn_raw = &asn_raw[2..];
+        }
+
+        let asn = asn_raw.parse::<u32>();
+        if asn.is_err() {
+            return None;
+        }
+
+        let asn = asn.unwrap();
+
+        let ip_raw = s[0];
+        let ip_raw = ip_raw.trim();
+        let ip = ip_raw.split("/").nth(0).unwrap().to_string();
+
+        let prefix = ip_raw.split("/").nth(1).unwrap().parse::<u8>().unwrap();
+
+        let ml = prefix;
+        // let new_raw = format!("{},{},{}", s[1], s[0], prefix);
+
+        let family = if ip.contains(":") {
+            IPType::V6
+        } else {
+            IPType::V4
+        };
+
+        let vrps_ip = IPEntry {
+            ip_s: ip.clone(),
+            ip: ipstring_to_bytes(&ip, &family),
+            prefix,
+            max_len: ml,
+            typ: family,
+        };
+
+        Some(Entry { ip: vrps_ip, asn })
+    }
+
+    pub fn from_str(raw: &str) -> Option<Entry> {
+        let parts: Vec<&str> = raw.split(",").collect();
+        let mut asn_raw = parts[0];
+        if asn_raw.starts_with("AS") {
+            asn_raw = &asn_raw[2..];
+        }
+        let asn = asn_raw.parse::<u32>();
+        if asn.is_err() {
+            return None;
+        }
+        let asn = asn.unwrap();
+        let ip = parts[1].to_string();
+        let prefix = parts[1].split("/").nth(1).unwrap().parse::<u8>().unwrap();
+
+        let ml = parts[2].parse::<u8>().unwrap_or(prefix);
+        // let new_raw = format!("{},{},{}", parts[0], parts[1], parts[2]);
+
+        let family = if ip.contains(":") {
+            IPType::V6
+        } else {
+            IPType::V4
+        };
+
+        let vrps_ip = IPEntry {
+            ip_s: ip.clone(),
+            ip: ipstring_to_bytes(&ip, &family),
+            prefix,
+            max_len: ml,
+            typ: family,
+        };
+
+        Some(Entry { ip: vrps_ip, asn })
+    }
+
+    pub fn from_json(roa: &JsonRoa) -> Option<Entry> {
+        let mut asn_raw = roa.asn.as_str();
+        if asn_raw.starts_with("AS") {
+            asn_raw = &asn_raw[2..];
+        }
+        let asn = asn_raw.parse::<u32>();
+        if asn.is_err() {
+            return None;
+        }
+        let asn = asn.unwrap();
+        let ip = roa.prefix.clone();
+        let prefix = roa.prefix.split('/').nth(1).unwrap().parse::<u8>().unwrap();
+
+        // let new_raw = format!("{},{},{}", roa.asn, roa.prefix, roa.max_length);
+
+        let family = if ip.contains(":") {
+            IPType::V6
+        } else {
+            IPType::V4
+        };
+
+        let vrps_ip = IPEntry {
+            ip_s: ip.clone(),
+            ip: ipstring_to_bytes(&ip, &family),
+            prefix,
+            max_len: roa.max_length,
+            typ: family,
+        };
+
+        Some(Entry { ip: vrps_ip, asn })
+    }
+}
+
+impl PartialEq for Entry {
+    fn eq(&self, other: &Self) -> bool {
+        self.ip == other.ip && self.ip.prefix == other.ip.prefix && self.asn == other.asn
+    }
+}
+
+// Since Eq is a marker trait, we don't need to implement any methods for it,
+// we just declare that Entry implements Eq.
+impl Eq for Entry {}
+
+// Implement Hash for Entry
+impl Hash for Entry {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.ip.ip_s.hash(state);
+        self.ip.prefix.hash(state);
+        self.asn.hash(state);
+    }
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DiffEntry {
+    pub entry: Entry,
+    pub missing_from: Vec<String>,
+}
+
+impl PartialEq for DiffEntry {
+    fn eq(&self, other: &Self) -> bool {
+        let entries = self.entry == other.entry;
+        // Check if missing from is identical
+        let missing: bool = self
+            .missing_from
+            .iter()
+            .zip(other.missing_from.iter())
+            .all(|(a, b)| a == b);
+        entries && missing
+    }
+}
+
+impl Eq for DiffEntry {}
+
+// Implement Hash for Entry
+impl Hash for DiffEntry {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.entry.hash(state);
+        self.missing_from.hash(state);
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct VRPS {
+    pub content: Vec<Entry>,
+    pub rp_name: String,
+}
+
+impl VRPS {
+    pub fn from_entries(entries: HashSet<Entry>, rp_name: &str) -> VRPS {
+        VRPS {
+            content: entries.into_iter().collect(),
+            rp_name: rp_name.to_string(),
+        }
+    }
+
+    pub fn from_content(content: &str, rp_name: &str) -> VRPS {
+        if content.contains("{") {
+            VRPS::from_json(&content, &rp_name)
+        } else {
+            VRPS::from_csv(&content, &rp_name)
+        }
+    }
+
+    pub fn from_file(file_uri: &str, rp_name: &str) -> VRPS {
+        let content = std::fs::read_to_string(file_uri).unwrap();
+        VRPS::from_content(&content, &rp_name)
+    }
+
+    pub fn from_csv(csv: &str, rp_name: &str) -> VRPS {
+        let lines = csv.split("\n");
+        let mut content = vec![];
+        for line in lines {
+            if line.is_empty() {
+                continue;
+            }
+            let entry = Entry::from_str(line);
+            if entry.is_none() {
+                continue;
+            }
+            let entry = entry.unwrap();
+            content.push(entry);
+        }
+        VRPS {
+            content,
+            rp_name: rp_name.to_string(),
+        }
+    }
+
+    pub fn from_json(json_str: &str, rp_name: &str) -> VRPS {
+        let data: VrpsData = serde_json::from_str(json_str).unwrap();
+        let mut entries = Vec::new();
+        for roa in data.roas.iter() {
+            if let Some(entry) = Entry::from_json(roa) {
+                entries.push(entry);
+            }
+        }
+        VRPS {
+            content: entries,
+            rp_name: rp_name.to_string(),
+        }
+    }
+
+    pub fn from_objects(objects: HashMap<String, Vec<u8>>, base_uri: &str) -> VRPS {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(6)
+            .build()
+            .unwrap();
+        let roa_ips: Vec<_> = pool.install(|| {
+            objects
+                .par_iter()
+                .map(|(uri, data)| {
+                    let ext = uri.split('.').last().unwrap();
+                    let optype = ObjectType::from_string(ext);
+                    if optype != ObjectType::ROA {
+                        return None;
+                    }
+                    let tree = parse_rpki_object(&data, &optype);
+                    if tree.is_none() {
+                        println!("Failed to parse {:?}", uri);
+                        return None;
+                    }
+
+                    let tree = tree.unwrap();
+                    let ips = tree.get_roa_ips_string();
+                    let asn = tree.get_roa_asn().unwrap_or(0);
+                    return Some((uri.clone(), asn, ips));
+                })
+                .collect()
+        });
+
+        // store_roa_map(&roa_ips, base_uri);
+
+        let mut vrps = HashSet::new();
+        for roa in &roa_ips {
+            if roa.is_none() {
+                continue;
+            }
+            let roa = roa.clone().unwrap();
+            let uri = roa.0.clone();
+            let asn = roa.1.clone();
+            let ips = roa.2.clone();
+
+            for ip in ips {
+                let ip = ip.to_string();
+                let ip = ip.split(",").collect::<Vec<_>>()[0];
+                // let ip = s[0..s.len() - 1].join("/");
+                let s = format!("{} => {}", ip, asn);
+                let entry = Entry::from_roa_str(&s);
+                if entry.is_none() {
+                    println!("Failed to parse {:?}", uri);
+                    continue;
+                }
+                let entry = entry.unwrap();
+                vrps.insert(entry);
+            }
+        }
+
+        let vrps = VRPS::from_entries(vrps, "crawler");
+        let s = serde_json::to_string(&vrps).unwrap();
+        let path = format!("{}/vrps.dump", base_uri);
+        fs::write(path, s).unwrap();
+        return vrps;
+    }
+
+    pub fn differences(&self, other: &VRPS) -> (Vec<Entry>, Vec<Entry>) {
+        let mut not_in_a: Vec<Entry> = vec![];
+        let mut not_in_b: Vec<Entry> = vec![];
+
+        let self_content_set: HashSet<&Entry> = self.content.iter().collect();
+        let other_content_set: HashSet<&Entry> = other.content.iter().collect();
+
+        for entry in &self.content {
+            if !other_content_set.contains(&entry) {
+                not_in_b.push(entry.clone());
+            }
+        }
+
+        for entry in &other.content {
+            if !self_content_set.contains(&entry) {
+                not_in_a.push(entry.clone());
+            }
+        }
+
+        (not_in_a, not_in_b)
+    }
+
+    pub fn differences_many(&self, others: Vec<VRPS>) -> Vec<DiffEntry> {
+        let mut not_in: Vec<DiffEntry> = vec![];
+        let mut all_set: HashSet<&Entry> = HashSet::new();
+
+        // Collect entries from self.content into all_set
+        for entry in &self.content {
+            all_set.insert(entry);
+        }
+
+        // Collect entries from others into all_set
+        for other in &others {
+            for entry in &other.content {
+                all_set.insert(entry);
+            }
+        }
+
+        // Create a HashSet for fast lookup of entries in self.content and others
+        let self_content_set: HashSet<&Entry> = self.content.iter().collect();
+        let others_content_sets: Vec<HashSet<&Entry>> = others
+            .iter()
+            .map(|other| other.content.iter().collect())
+            .collect();
+
+        for entr in all_set {
+            let mut missing_from = vec![];
+            if !self_content_set.contains(entr) {
+                missing_from.push(self.rp_name.clone());
+            }
+
+            for (i, other_set) in others_content_sets.iter().enumerate() {
+                if !other_set.contains(entr) {
+                    missing_from.push(others[i].rp_name.clone());
+                }
+            }
+
+            if missing_from.len() > 0 {
+                let dif_entry = DiffEntry {
+                    entry: entr.clone(),
+                    missing_from,
+                };
+                not_in.push(dif_entry);
+            }
+        }
+
+        not_in
+    }
+
+    pub fn contains_entry_asn(&self, asn: u32) -> bool {
+        for con in &self.content {
+            if con.asn == asn {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // pub fn load_for_rps(rp_names: &Vec<String>) -> Vec<VRPS> {
+    //     let configs = config_parser::parse_configs();
+    //     let mut all_vrps = vec![];
+
+    //     // let mut parsed_logs = vec![];
+    //     for conf in configs {
+    //         if !rp_names.contains(&conf.0) {
+    //             continue;
+    //         }
+
+    //         let file = conf.1.vrps_file.1;
+    //         let content = std::fs::read_to_string(&file);
+    //         if content.is_err() {
+    //             continue;
+    //         }
+
+    //         let content = content.unwrap();
+    //         let vrp;
+    //         if conf.0 == "octorpki" {
+    //             vrp = VRPS::from_json(&content, &conf.0);
+    //         } else {
+    //             vrp = VRPS::from_csv(&content, &conf.0);
+    //         }
+
+    //         all_vrps.push(vrp);
+    //     }
+    //     all_vrps
+    // }
 }

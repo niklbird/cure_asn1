@@ -96,8 +96,6 @@ pub fn parse_ip(ip: &Vec<u8>, fam: u8, padding_amount: usize) -> String {
             ret = new_ret;
         }
 
-        let count = 0;
-
         ret += &format!("/{}", 8 * ip.len() - padding_amount);
     }
 
