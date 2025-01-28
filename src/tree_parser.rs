@@ -202,7 +202,10 @@ impl Tree {
             return self.random_token_id();
         } else {
             if self.get_node_by_label("encapsulatedContentInfo").is_some() {
-                let id = self.get_node_by_label("encapsulatedContentInfo").unwrap().id;
+                let id = self
+                    .get_node_by_label("encapsulatedContentInfo")
+                    .unwrap()
+                    .id;
                 let ancestors = self.get_offspring_ids(id);
 
                 if ancestors.len() == 0 {
@@ -256,7 +259,10 @@ impl Tree {
         }
 
         // This should never happen...
-        println!("ERROR: ID is not a child of the parent {}, parent {}", id, parent_id);
+        println!(
+            "ERROR: ID is not a child of the parent {}, parent {}",
+            id, parent_id
+        );
         return 0;
     }
 
@@ -289,7 +295,13 @@ impl Tree {
         cur_id
     }
 
-    pub fn insert_new_nodes(&mut self, node_id: usize, new_nodes: &HashMap<usize, Token>, current_index: &mut usize, parent_id: usize) {
+    pub fn insert_new_nodes(
+        &mut self,
+        node_id: usize,
+        new_nodes: &HashMap<usize, Token>,
+        current_index: &mut usize,
+        parent_id: usize,
+    ) {
         let mut tok = new_nodes.get(&node_id).unwrap().clone();
         tok.id = *current_index;
         tok.parent = parent_id;
@@ -307,7 +319,12 @@ impl Tree {
         self.tokens.get_mut(&tok.id).unwrap().children = direct_children;
     }
 
-    pub fn splice_tree(&mut self, node_id: usize, new_nodes: &HashMap<usize, Token>, new_node_id: usize) {
+    pub fn splice_tree(
+        &mut self,
+        node_id: usize,
+        new_nodes: &HashMap<usize, Token>,
+        new_node_id: usize,
+    ) {
         let offspring = self.get_offspring_ids(node_id);
         for v in offspring {
             self.labels.remove(&self.tokens[&v].info);
@@ -321,7 +338,8 @@ impl Tree {
         self.labels.remove(&self.tokens.get(&node_id).unwrap().info);
         let parent = self.tokens.get_mut(&node_id).unwrap().parent;
         *self.tokens.get_mut(&node_id).unwrap() = new_nodes[&new_node_id].clone();
-        self.labels.insert(new_nodes[&new_node_id].info.clone(), node_id);
+        self.labels
+            .insert(new_nodes[&new_node_id].info.clone(), node_id);
 
         // Find next insertion location
         let max_key = self.tokens.keys().max().unwrap();
@@ -547,7 +565,9 @@ impl Tree {
                 self.cur_index += 1;
 
                 if o.value.is_some() {
-                    token.children.push(self.create_tree(*o.value.unwrap(), Some(new_id)));
+                    token
+                        .children
+                        .push(self.create_tree(*o.value.unwrap(), Some(new_id)));
                 } else {
                     token.data = o.data;
                 }
@@ -644,10 +664,15 @@ impl Tree {
                 let (child_len_full, child_data_len) = self.fix_sizes_rec(child, mandatory_taint);
                 child_len += child_len_full;
 
-                self.tokens.get_mut(&child).unwrap().set_length(child_data_len);
+                self.tokens
+                    .get_mut(&child)
+                    .unwrap()
+                    .set_length(child_data_len);
             } else {
                 let c = self.tokens.get(&child).unwrap().length;
-                child_len += c + self.tokens.get(&child).unwrap().visual_tag.len() + encode_asn1_length(c).len();
+                child_len += c
+                    + self.tokens.get(&child).unwrap().visual_tag.len()
+                    + encode_asn1_length(c).len();
             }
         }
         let own_len = self.tokens.get(&id).unwrap().data.len();
@@ -783,7 +808,13 @@ impl Tree {
                     return (c, s);
                 }
 
-                let s = format!("{} [{}] Typ{} {:?}\n", space, descr, node.imp_tag.unwrap(), node.data);
+                let s = format!(
+                    "{} [{}] Typ{} {:?}\n",
+                    space,
+                    descr,
+                    node.imp_tag.unwrap(),
+                    node.data
+                );
                 return (1, s);
             }
             Types::Set => {
@@ -858,7 +889,13 @@ impl Tree {
     }
 
     // Warning!! Setting data to a label removes the children of the node
-    pub fn set_data_by_label(&mut self, label: &str, data: Vec<u8>, self_taint: bool, manipulated: bool) -> bool {
+    pub fn set_data_by_label(
+        &mut self,
+        label: &str,
+        data: Vec<u8>,
+        self_taint: bool,
+        manipulated: bool,
+    ) -> bool {
         let id = self.labels.get(label);
         if id.is_some() {
             let id = id.unwrap();
@@ -950,6 +987,47 @@ pub fn encode_oid_from_string(oid_str: &str) -> Vec<u8> {
     }
 
     encoded
+}
+
+pub fn decode_oid_to_string(encoded: &[u8]) -> String {
+    if encoded.is_empty() {
+        panic!("Encoded OID cannot be empty");
+    }
+
+    // Decode the first byte to get the first two components
+    let first_byte = encoded[0];
+    let first = first_byte / 40;
+    let second = first_byte % 40;
+    let mut oid = vec![first as u32, second as u32];
+
+    // Decode the rest of the bytes
+    let mut value = 0u32;
+    let mut in_progress = false;
+
+    for &byte in &encoded[1..] {
+        if byte & 0x80 != 0 {
+            // Continuation byte
+            value = (value << 7) | (byte & 0x7F) as u32;
+            in_progress = true;
+        } else {
+            // Last byte of the component
+            value = (value << 7) | byte as u32;
+            oid.push(value);
+            value = 0;
+            in_progress = false;
+        }
+    }
+
+    // Ensure there are no incomplete components
+    if in_progress {
+        println!("Incomplete OID encoding");
+    }
+
+    // Convert the OID components to a dot-separated string
+    oid.into_iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join(".")
 }
 
 fn int_to_hex(v: u8) -> u8 {

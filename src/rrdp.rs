@@ -47,7 +47,8 @@ pub fn new_snapshot_and_notification(
 pub fn new_added_deltas(
     snap_publish: Vec<(String, Vec<u8>)>,
     snap_withdraws: Vec<String>,
-    deltas: Vec<(Vec<(String, Vec<u8>)>, Vec<String>)>,
+    deltas: Vec<(Vec<(String, String, Vec<u8>)>, Vec<String>)>,
+    previous_delta: Vec<(String, String, String)>, // Serial, uri, hash
     start_serial: u32,
     session_id: &str,
     base_rrdp_dir: &str,
@@ -104,13 +105,16 @@ pub fn new_added_deltas(
         random
     );
 
+    let mut all_deltas = previous_delta.clone();
+    all_deltas.extend(delta_for_notification.clone());
+    all_deltas.reverse();
     let snap = create_snapshot(serial, &session_id, snap_publish, snap_withdraws).unwrap();
     let snap_hash = get_hash(snap.clone());
     let notif = create_notification(
         serial,
         &session_id,
         (&snapshot_uri, &snap_hash),
-        Some(delta_for_notification),
+        Some(all_deltas),
     )
     .unwrap();
 
@@ -204,7 +208,7 @@ pub fn create_notification(
 pub fn create_delta(
     serial: u32,
     session_id: &str,
-    publishes: Vec<(String, Vec<u8>)>,
+    publishes: Vec<(String, String, Vec<u8>)>,
     withdraws: Vec<String>,
 ) -> xml::writer::Result<Vec<u8>> {
     let mut output = Cursor::new(Vec::new());
@@ -220,8 +224,16 @@ pub fn create_delta(
             .attr("session_id", session_id),
     )?;
 
-    for (uri, data) in publishes {
-        writer.write(XmlEvent::start_element("publish").attr("uri", &uri))?;
+    for (uri, hash, data) in publishes {
+        if hash == "" {
+            writer.write(XmlEvent::start_element("publish").attr("uri", &uri))?;
+        } else {
+            writer.write(
+                XmlEvent::start_element("publish")
+                    .attr("uri", &uri)
+                    .attr("hash", &hash),
+            )?;
+        }
         writer.write(XmlEvent::characters(&BASE64_STANDARD.encode(data)))?;
         writer.write(XmlEvent::end_element())?;
     }
@@ -243,6 +255,7 @@ pub struct RRDPEntry {
     pub hash: Option<String>,
     pub data: Vec<u8>,
     pub typ: String,
+    pub serial: Option<u32>,
 }
 
 pub struct XMLSnapshot {
@@ -284,6 +297,25 @@ impl XMLNotification {
         }
         return None;
     }
+
+    pub fn get_snapshot_uri_local(&self) -> String {
+        let uri = self.get_snapshot_uri().unwrap();
+        let uri = uri.replace("https://", "");
+        let uri = uri.split("/").collect::<Vec<&str>>()[1..].join("/");
+        return uri;
+    }
+
+    pub fn get_deltas(&self) -> Vec<(String, String, String)> {
+        let mut deltas = vec![];
+        for delta in &self.deltas {
+            deltas.push((
+                delta.serial.clone().unwrap_or(0).to_string(),
+                delta.uri.clone(),
+                delta.hash.clone().unwrap_or("".to_string()),
+            ));
+        }
+        return deltas;
+    }
 }
 
 pub fn parse_notification(xml_data: &str) -> Option<XMLNotification> {
@@ -304,15 +336,20 @@ pub fn parse_notification(xml_data: &str) -> Option<XMLNotification> {
                 hash: Some(hash.to_string()),
                 data: vec![],
                 typ: "snapshot".to_string(),
+                serial: None,
             });
         } else {
-            let uri = c.attr("uri").unwrap();
+            let uri = c.attr("uri").unwrap_or("none");
+            let serial = c.attr("serial").unwrap_or("0").parse().unwrap_or(0);
+            let hash = c.attr("hash").unwrap_or("none");
+
             let typ = c.name();
             let entry = RRDPEntry {
                 uri: uri.to_string(),
-                hash: None,
+                hash: Some(hash.to_string()),
                 data: vec![],
                 typ: typ.to_string(),
+                serial: Some(serial),
             };
             deltas.push(entry);
         }
@@ -351,6 +388,7 @@ pub fn parse_snapshot(xml_data: &str) -> Option<XMLSnapshot> {
             hash: None,
             data,
             typ: typ.to_string(),
+            serial: None,
         };
         entries.push(entry);
     }

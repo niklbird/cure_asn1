@@ -1,6 +1,7 @@
 use std::str::from_utf8;
 
 use crate::{
+    labeling::parse_oid,
     rpki_utils::{byt_to_in, parse_ip},
     tree_parser::Tree,
 };
@@ -160,6 +161,14 @@ impl RpkiObject {
 
         Some(from_utf8(&data).unwrap().to_string())
     }
+
+    pub fn get_signature_oid(&self) -> String {
+        let data = self.content.get_raw_by_label("signerSignatureAlgorithmOid");
+        if data.is_none() {
+            return "Unknown".to_string();
+        }
+        parse_oid(&data.unwrap())
+    }
 }
 
 pub fn parse_rpki_object(data: &Vec<u8>, typ: &ObjectType) -> Option<RpkiObject> {
@@ -289,20 +298,32 @@ impl TAL {
 }
 
 pub fn ipstring_to_bytes(ip: &str, family: &IPType) -> Vec<u8> {
+    let mut parts = vec![];
+
+    let ip_no_pre = ip.split("/").collect::<Vec<&str>>()[0];
     if family == &IPType::V4 {
-        let parts = ip
-            .split(".")
-            .map(|x| x.parse::<u8>().unwrap_or(0))
-            .collect::<Vec<u8>>();
+        for el in ip_no_pre.split(".") {
+            let ell = el.parse::<u8>();
+            if ell.is_err() {
+                println!("Couldnt parse {:?}", el);
+                return vec![];
+            }
+            let el = ell.unwrap();
+            parts.push(el);
+        }
         return parts;
     } else {
-        let mut parts = vec![];
-        for el in ip.split(":") {
+        for el in ip_no_pre.split(":") {
             if el.is_empty() {
                 parts.push(0);
                 parts.push(0);
             } else {
-                let el = el.parse::<u16>().unwrap();
+                let ell = u16::from_str_radix(el, 16);
+                if ell.is_err() {
+                    println!("Couldnt parse {:?}", el);
+                    return vec![];
+                }
+                let el = ell.unwrap();
                 parts.push((el >> 8) as u8);
                 parts.push((el & 0xFF) as u8);
             }
