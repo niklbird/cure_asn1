@@ -6,6 +6,7 @@ use crate::{
     tree_parser::Tree,
 };
 use base64::{prelude::BASE64_STANDARD, Engine};
+use rand::{seq::SliceRandom, thread_rng};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -188,7 +189,7 @@ pub fn parse_rpki_object(data: &Vec<u8>, typ: &ObjectType) -> Option<RpkiObject>
     })
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, std::cmp::Eq, Hash, Copy)]
 pub enum ObjectType {
     ROA,
     MFT,
@@ -235,6 +236,43 @@ impl ObjectType {
             _ => false,
         }
     }
+
+    pub fn is_payload(&self) -> bool{
+        match self {
+            ObjectType::ROA | ObjectType::ASA | ObjectType::GBR => true,
+            _ => false,
+        }
+    }
+
+    pub fn get_extension(&self) -> String{
+        format!(".{}", self.to_string())
+    }
+
+    pub fn random_with_weight(high_likelihood_type: ObjectType, weight: usize) -> Self {
+        let mut rng = thread_rng();
+        let mut choices = Vec::new();
+
+        // Add the high likelihood type with the specified weight
+        for _ in 0..weight {
+            choices.push(high_likelihood_type);
+        }
+
+        // Add all types, including the high likelihood type once more
+        for &op_type in &[
+            ObjectType::MFT,
+            ObjectType::ROA,
+            ObjectType::CRL,
+            ObjectType::CERTCA,
+            ObjectType::CERTROOT,
+            ObjectType::ASA,
+            ObjectType::GBR,
+        ] {
+            choices.push(op_type);
+        }
+
+        *choices.choose(&mut rng).unwrap()
+    }
+
 }
 
 impl ToString for ObjectType {

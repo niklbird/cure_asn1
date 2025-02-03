@@ -1013,7 +1013,7 @@ pub fn mutate_implicit(tree: &mut Tree, node_id: usize) -> TokenMutation {
         _ => unreachable!(),
     }
 }
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct Mutation {
     pub mutation: TokenMutation,
     pub node_id: usize,
@@ -1025,7 +1025,7 @@ impl Mutation {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub enum TokenMutation {
     Tlv(FieldMutation),
     Sequence(SequenceMutation),
@@ -1035,19 +1035,19 @@ pub enum TokenMutation {
     NoMutation,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub enum ConstructedMutation {
     Field(FieldMutation),
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub enum FieldMutation {
     Tag(ValueMutation),
     Length(ValueMutation),
     Content(ContentMutation),
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub enum ValueMutation {
     Zero,
     Max,
@@ -1058,7 +1058,7 @@ pub enum ValueMutation {
     Random,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub enum ContentMutation {
     BitFlipping,
     ByteFlipping,
@@ -1072,7 +1072,7 @@ pub enum ContentMutation {
     DataRemoval,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub enum SequenceMutation {
     Field(FieldMutation),
     ReOrder,

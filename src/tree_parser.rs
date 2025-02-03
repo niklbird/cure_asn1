@@ -53,7 +53,7 @@ pub struct SpecialTag {
     pub length: usize,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct Token {
     pub tag: Types,
     pub length: usize,
@@ -107,7 +107,7 @@ impl Token {
     }
 }
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct Tree {
     pub tokens: HashMap<usize, Token>,
     pub cur_index: usize,

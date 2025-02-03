@@ -12,14 +12,14 @@ pub fn get_hash(data: Vec<u8>) -> String {
 pub fn new_snapshot_and_notification(
     publish: Vec<(String, Vec<u8>)>,
     withdraws: Vec<String>,
-    base_rrdp_dir: &str,
+    base_rrdp_dir: (&str, &str),
     domain: &str,
 ) -> (String, Vec<u8>, String, Vec<u8>) {
     let serial = 1;
     let session_id = Uuid::new_v4().to_string();
     let random = generate_random_bytes();
 
-    let base_uri = format!("{}{}/{}", "https://", domain, base_rrdp_dir);
+    let base_uri = format!("{}{}/{}", "https://", domain, base_rrdp_dir.0);
     let snapshot_uri = format!(
         "{}{}/{}/{}/snapshot.xml",
         &base_uri,
@@ -27,10 +27,10 @@ pub fn new_snapshot_and_notification(
         serial.to_string(),
         random
     );
-    let notification_uri_l = format!("{}notification.xml", base_rrdp_dir);
+    let notification_uri_l = format!("{}notification.xml", base_rrdp_dir.1);
     let snapshot_uri_l = format!(
         "{}{}/{}/{}/snapshot.xml",
-        base_rrdp_dir,
+        base_rrdp_dir.1,
         &session_id,
         serial.to_string(),
         random
