@@ -203,6 +203,11 @@ pub enum ObjectType {
     NOTIFICATION,
     SNAPSHOT,
     DELTA,
+    IROA,
+    IMFT,
+    ICRL,
+    IGBR,
+    ICER,
 }
 
 impl ObjectType {
@@ -290,6 +295,11 @@ impl ToString for ObjectType {
             ObjectType::NOTIFICATION => "notification".to_string(),
             ObjectType::SNAPSHOT => "snapshot".to_string(),
             ObjectType::DELTA => "delta".to_string(),
+            ObjectType::IROA => "iroa".to_string(),
+            ObjectType::IMFT => "imft".to_string(),
+            ObjectType::ICRL => "icrl".to_string(),
+            ObjectType::IGBR => "igbr".to_string(),
+            ObjectType::ICER => "icer".to_string(),
         }
     }
 }

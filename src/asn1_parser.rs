@@ -357,6 +357,39 @@ pub enum Element {
     Implicit(Implicit),
 }
 
+
+// Implement `From` for each ASN.1 type
+impl From<TLV> for Element {
+    fn from(tlv: TLV) -> Self {
+        Element::TLV(tlv)
+    }
+}
+
+impl From<Sequence> for Element {
+    fn from(seq: Sequence) -> Self {
+        Element::Sequence(seq)
+    }
+}
+
+impl From<Set> for Element {
+    fn from(set: Set) -> Self {
+        Element::Set(set)
+    }
+}
+
+impl From<OctetString> for Element {
+    fn from(octet_string: OctetString) -> Self {
+        Element::OctetString(octet_string)
+    }
+}
+
+impl From<Implicit> for Element {
+    fn from(implicit: Implicit) -> Self {
+        Element::Implicit(implicit)
+    }
+}
+
+
 impl Element {
     pub fn get_len(&self) -> usize {
         match self {
@@ -365,6 +398,16 @@ impl Element {
             Element::TLV(tlv) => tlv.total_len,
             Element::OctetString(octet_string) => octet_string.total_len,
             Element::Implicit(implicit) => implicit.total_len,
+        }
+    }
+
+    pub fn get_data(&self) -> Vec<u8>{
+        match self {
+            Element::Sequence(seq) => seq.data.clone(),
+            Element::Set(set) => set.data.clone(),
+            Element::TLV(tlv) => tlv.data.clone(),
+            Element::OctetString(octet_string) => octet_string.data.clone(),
+            Element::Implicit(imp) => imp.value[0].get_data(),
         }
     }
 }
@@ -403,6 +446,11 @@ impl TLV {
             data: value,
         }
     }
+
+    /// Turns Value into Element
+    pub fn to_el(self) -> Element{
+        Element::TLV(self)
+    }
 }
 
 impl WriteASN1 for TLV {
@@ -425,17 +473,14 @@ pub struct Set {
 }
 
 impl Set {
-    pub fn new(values: Vec<TLV>) -> Set {
-        let mut vec = vec![];
+    pub fn new(values: Vec<Element>) -> Set {
         let mut length = 0;
         let mut data = vec![];
 
-        for v in values {
-            length += v.total_len;
+        for v in &values {
+            length += v.get_len();
 
-            let e = Element::TLV(v);
-            data.extend(e.encode());
-            vec.push(e);
+            data.extend(v.encode());
         }
 
         let total_len = 1 + encode_asn1_length(length).len() + length;
@@ -443,7 +488,7 @@ impl Set {
         Set {
             tag: 49,
             length,
-            value: vec,
+            value: values,
             total_len,
             data,
         }
@@ -466,6 +511,11 @@ impl Set {
             data: self.data.clone(),
         }
     }
+
+    pub fn to_el(self) -> Element{
+        Element::Set(self)
+    }
+
 }
 
 impl WriteASN1 for Set {
@@ -490,17 +540,14 @@ pub struct Sequence {
 }
 
 impl Sequence {
-    pub fn new(values: Vec<TLV>) -> Sequence {
-        let mut vec = vec![];
+    pub fn new(values: Vec<Element>) -> Sequence {
         let mut length = 0;
         let mut data = vec![];
 
-        for v in values {
-            length += v.total_len;
+        for v in &values {
+            length += v.get_len();
 
-            let e = Element::TLV(v);
-            data.extend(e.encode());
-            vec.push(e);
+            data.extend(v.encode());
         }
 
         let total_len = 1 + encode_asn1_length(length).len() + length;
@@ -508,7 +555,7 @@ impl Sequence {
         Sequence {
             tag: 48,
             length,
-            value: vec,
+            value: values,
             total_len,
             data,
         }
@@ -530,6 +577,10 @@ impl Sequence {
             total_len: self.total_len,
             data: self.data.clone(),
         }
+    }
+
+    pub fn to_el(self) -> Element{
+        Element::Sequence(self)
     }
 }
 
@@ -568,6 +619,19 @@ impl OctetString {
         }
     }
 
+    pub fn new_el(value: Element) -> OctetString {
+        let len = value.get_len();
+        let total_len = 1 + encode_asn1_length(len).len() + len;
+
+        OctetString {
+            tag: 4,
+            length: len,
+            value: Some(Box::new(value)),
+            total_len,
+            data: vec![],
+        }
+    }
+
     pub fn to_tlv(&self) -> TLV {
         TLV {
             tag: self.tag,
@@ -576,6 +640,10 @@ impl OctetString {
             total_len: self.total_len,
             data: self.data.clone(),
         }
+    }
+
+    pub fn to_el(self) -> Element{
+        Element::OctetString(self)
     }
 }
 
@@ -602,13 +670,11 @@ pub struct Implicit {
 }
 
 impl Implicit {
-    pub fn new(tag: u8, value: Vec<TLV>) -> Implicit {
+    pub fn new(tag: u8, value: Vec<Element>) -> Implicit {
         let mut total_length = 0;
-        let mut el_vec = vec![];
 
         for e in &value {
-            total_length += e.total_len;
-            el_vec.push(Element::TLV(e.clone()));
+            total_length += e.get_len();
         }
         let len = total_length;
         let total_len = 1 + encode_asn1_length(len).len() + len;
@@ -616,7 +682,7 @@ impl Implicit {
         Implicit {
             tag,
             length: len,
-            value: el_vec,
+            value: value,
             total_len,
         }
     }
@@ -633,6 +699,10 @@ impl Implicit {
             total_len: self.total_len,
             data: vec![],
         }
+    }
+
+    pub fn to_el(self) -> Element{
+        Element::Implicit(self)
     }
 }
 

@@ -122,20 +122,22 @@ pub struct Tree {
     pub labels: HashMap<String, usize>,
     pub mutations: Vec<Mutation>,
     pub additional_info: HashMap<String, Vec<u8>>,
+    pub root_id: usize,
 }
 
 impl Tree {
-    pub fn new(obj_type: String) -> Tree {
+    pub fn new(obj_type: &str) -> Tree {
         Tree {
             tokens: HashMap::new(),
             cur_index: 0,
-            obj_type,
+            obj_type: obj_type.to_owned(),
             first_name: true,
             first_algoid: true,
             first_rsa: true,
             labels: HashMap::new(),
             mutations: Vec::new(),
             additional_info: HashMap::new(),
+            root_id: 0,
         }
     }
 
@@ -150,8 +152,10 @@ impl Tree {
     }
 
     pub fn get_root(&self) -> &Token {
-        &self.tokens.get(&0).unwrap()
+        self.tokens.get(&self.root_id).unwrap()
     }
+
+
 
     pub fn get_node(&self, id: usize) -> Option<&Token> {
         self.tokens.get(&id)
@@ -221,7 +225,7 @@ impl Tree {
     }
 
     pub fn remove_child_id_in_parent(&mut self, id: usize) {
-        if id == 0 {
+        if id == self.root_id {
             return;
         }
         if !self.tokens.contains_key(&id) {
@@ -270,7 +274,7 @@ impl Tree {
         let mut next_id = id;
         let mut ret = vec![];
 
-        while next_id != 0 {
+        while next_id != self.root_id {
             let loc = self.get_child_id_in_parent(next_id);
             ret.push(loc);
             next_id = self.get_parent(next_id);
@@ -414,7 +418,7 @@ impl Tree {
     pub fn get_ancestors(&self, id: usize) -> Vec<&Token> {
         let mut ancestors = Vec::new();
         let mut cur_id = id;
-        while cur_id != 0 {
+        while cur_id != self.root_id {
             let anc = self.tokens.get(&cur_id).unwrap();
             cur_id = anc.parent;
 
@@ -474,7 +478,7 @@ impl Tree {
         let mut cur_node = id;
 
         // Iterate parents and taint them
-        while cur_node != 0 {
+        while cur_node != self.root_id {
             let parent_id = self.get_parent(cur_node);
             self.tokens.get_mut(&parent_id).unwrap().tainted = true;
             cur_node = parent_id;
@@ -503,17 +507,26 @@ impl Tree {
     }
 
     pub fn generate_tree(obj: Element, typ: String) -> Tree {
-        let mut tree = Tree::new(typ);
+        Tree::generate_tree_index(obj, typ, 0)
+    }
+
+    pub fn generate_tree_index(obj: Element, typ: String, start_index: usize) -> Tree {
+        let mut tree = Tree::new(&typ);
+        tree.cur_index = start_index;
+        tree.root_id = start_index;
         tree.create_tree(obj, None);
         tree.fix_sizes(false);
-        tree.label_tree();
+        if typ != ""{
+            tree.label_tree();
+        }
         tree
     }
+
 
     fn create_tree(&mut self, obj: Element, parent_id: Option<usize>) -> usize {
         let parent = match parent_id {
             Some(id) => id,
-            None => 0,
+            None => self.cur_index,
         };
         match obj {
             Element::Sequence(seq) => {
@@ -619,7 +632,7 @@ impl Tree {
         }
 
         let label_obj = label_obj.unwrap();
-        self.label_tree_rec(0, &label_obj);
+        self.label_tree_rec(self.root_id, &label_obj);
     }
 
     pub fn label_tree_rec(&mut self, id: usize, label_obj: &LabelObject) {
@@ -655,8 +668,9 @@ impl Tree {
     @param mandatory_taint: If true, only tainted nodes will be adapted. If false, all nodes will be adapted.
      */
     pub fn fix_sizes(&mut self, mandatory_taint: bool) -> usize {
-        let (child_len_full, child_data_len) = self.fix_sizes_rec(&0, mandatory_taint);
-        self.tokens.get_mut(&0).unwrap().set_length(child_data_len);
+        let root_id = self.root_id;
+        let (child_len_full, child_data_len) = self.fix_sizes_rec(&root_id, mandatory_taint);
+        self.tokens.get_mut(&self.root_id).unwrap().set_length(child_data_len);
         return child_len_full;
     }
 
@@ -762,7 +776,7 @@ impl Tree {
 
     pub fn print_id_structure(&self) {
         let parents = Vec::new();
-        self.print_id_structure_rec(0, &parents);
+        self.print_id_structure_rec(self.root_id, &parents);
     }
 
     pub fn to_string(&self, node_id: usize, cur_depth: usize) -> (usize, String) {
@@ -932,6 +946,50 @@ impl Tree {
         return false;
     }
 
+    pub fn set_element_by_label(&mut self, label: &str, element: Element, self_taint: bool, manipulated: bool) -> bool{
+        let id = self.labels.get(label);
+        if id.is_some() {
+            let id = id.unwrap();
+
+            // First: Remove all children of the node (They are not needed anymore)
+            if self.tokens.get_mut(id).unwrap().children.len() > 0 {
+                self.get_offspring_ids(*id).iter().for_each(|x| {
+                    self.tokens.remove(x);
+                });
+            }
+
+
+            let new_root = self.tokens.keys().max().unwrap_or(&0) + 1; // Insert new tokens behind existing tokens
+
+            // Concept: Turn the new element structure into tree (token ids chosen so they dont collide with existing tree), then add the new tokens into this existing tree. 
+            // To add, the interface token, i.e. the token thats added to the existing tree to connect to new tree needs to have the correct id (the id of the token its replacing).
+            let tree = Tree::generate_tree_index(element, "".to_string(), new_root);
+
+            for token in tree.tokens.values(){
+                if token.id == new_root{
+                    continue;
+                }
+
+                let mut new_token = token.clone();
+                if new_token.parent == new_root{
+                    new_token.parent = *id;
+                }
+                self.tokens.insert(new_token.id, new_token);
+            }
+
+            let mut replacing_token = tree.tokens[&new_root].clone();
+            replacing_token.id = *id;
+            replacing_token.parent = self.tokens[id].parent;
+            replacing_token.manipulated = manipulated;
+            replacing_token.tainted = self_taint;
+            self.tokens.insert(*id, replacing_token);
+
+            self.taint_parents(*id);
+            return true;
+        }
+        return false;
+    }
+
     pub fn set_visual_length_by_label(&mut self, label: &str, length: usize) -> bool {
         let id = self.labels.get(label);
         if id.is_some() {
@@ -947,7 +1005,7 @@ impl Tree {
 
 impl fmt::Debug for Tree {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_string(0, 0).1)
+        write!(f, "{}", self.to_string(self.root_id, 0).1)
     }
 }
 
