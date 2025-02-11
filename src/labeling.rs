@@ -683,6 +683,38 @@ pub fn label_signer_infos() -> LabelObject<'static> {
     signer_infos
 }
 
+
+pub fn label_rpki_info() -> LabelObject<'static>{
+    LabelObject::new(Some("rpkiInfo"), vec![
+        LabelObject::new(Some("serialNumber"), vec![]),
+        LabelObject::new(Some("validityPeriod"), vec![
+            LabelObject::new(Some("notBefore"), vec![]),
+            LabelObject::new(Some("notAfter"), vec![]),
+        ]),
+        LabelObject::new(Some("authorityKeyIdentifier"), vec![]),
+        LabelObject::new(Some("signedObjectURI"), vec![]),
+    ])
+}
+
+pub fn label_iroa() -> LabelObject<'static>{
+    let oc_label = LabelObject {
+        label: Some("eContentOuterOctet"),
+        label_info: None,
+        children: vec![],
+        label_function: Some(label_fn_encoded_content),
+    };
+    LabelObject::new(
+        Some("roaSeq"),
+        vec![
+            LabelObject::new(Some("eContentType"), vec![]),
+            LabelObject::new(Some("eContent"), vec![oc_label]),
+            label_rpki_info()
+        ],
+    )
+
+
+}
+
 pub fn label_tree(typ: &str) -> Option<LabelObject<'static>> {
     if typ == "roa" || typ == "mft" || typ == "gbr" || typ == "asa" {
         let signed_data = LabelObject::new(
@@ -716,7 +748,11 @@ pub fn label_tree(typ: &str) -> Option<LabelObject<'static>> {
         Some(content_info)
     } else if typ == "cert" || typ == "cer" || typ == "crl" {
         Some(label_certificate(typ))
-    } else {
+    } 
+    else if typ == "iroa"{
+        Some(label_iroa())
+    }
+    else {
         None
         // unimplemented!("Unknown type: {}", typ);
     }

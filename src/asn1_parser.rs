@@ -410,6 +410,26 @@ impl Element {
             Element::Implicit(imp) => imp.value[0].get_data(),
         }
     }
+
+    pub fn get_child_amount(&self) -> usize{
+        match self {
+            Element::Sequence(seq) => seq.value.len(),
+            Element::Set(set) => set.value.len(),
+            Element::TLV(_) => 0,
+            Element::OctetString(_) => 0,
+            Element::Implicit(imp) => imp.value.len(),
+        }
+    }
+
+    pub fn encode_content(&self) -> Vec<u8>{
+        match self {
+            Element::Sequence(seq) => seq.encode_content(),
+            Element::Set(set) => set.encode_content(),
+            Element::TLV(tlv) => tlv.value.clone(),
+            Element::OctetString(octet_string) => octet_string.data.clone(),
+            Element::Implicit(imp) => imp.value[0].get_data(),
+        }
+    }
 }
 
 impl WriteASN1 for Element {
