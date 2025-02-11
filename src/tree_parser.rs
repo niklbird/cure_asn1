@@ -600,7 +600,13 @@ impl Tree {
             return self.additional_info.get("havocc").unwrap().clone();
         }
         let root = self.get_root();
-        let data = self.encode_node(root);
+        let mut data = self.encode_node(root);
+        if self.additional_info.contains_key("min_size"){
+            while data.len() < self.additional_info.get("min_size").unwrap()[0].into(){
+                data.push(0);
+            }
+        }
+
         data
     }
 
