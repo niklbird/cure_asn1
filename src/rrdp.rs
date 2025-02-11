@@ -354,23 +354,25 @@ pub fn parse_notification(xml_data: &str) -> Option<XMLNotification> {
             deltas.push(entry);
         }
     }
+
     let notification = XMLNotification {
         serial: root.attr("serial").unwrap().parse().unwrap(),
         session_id: root.attr("session_id").unwrap().to_string(),
         snapshot_uri: snapshot,
         deltas,
     };
+    
     return Some(notification);
 }
 
 pub fn parse_snapshot(xml_data: &str) -> Option<XMLSnapshot> {
     let root: Result<minidom::Element, _> = xml_data.parse();
+    
     if root.is_err() {
         return None;
     }
     let root = root.unwrap();
 
-    // let mut snapshot = None;
     let mut entries = vec![];
     for c in root.children() {
         let uri = c.attr("uri").unwrap();
@@ -380,9 +382,6 @@ pub fn parse_snapshot(xml_data: &str) -> Option<XMLSnapshot> {
         let data_raw = data_raw.replace("\n", "");
         let data = BASE64_STANDARD.decode(data_raw).unwrap_or(vec![]);
 
-        if data.is_empty() {
-            println!("c {:?}", c);
-        }
         let entry = RRDPEntry {
             uri: uri.to_string(),
             hash: None,
@@ -392,11 +391,13 @@ pub fn parse_snapshot(xml_data: &str) -> Option<XMLSnapshot> {
         };
         entries.push(entry);
     }
+
     let snapshot = XMLSnapshot {
         serial: root.attr("serial").unwrap().parse().unwrap(),
         session_id: root.attr("session_id").unwrap().to_string(),
         entries,
     };
+
     return Some(snapshot);
 }
 

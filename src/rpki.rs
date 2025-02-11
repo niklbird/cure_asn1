@@ -64,6 +64,7 @@ impl RpkiObject {
         for child in &n.children {
             let child_node = self.content.get_node(*child).unwrap();
             let family = byt_to_in(self.content.tokens[&child_node.children[0]].data.clone());
+            
             for full_ip in &self.content.tokens[&child_node.children[1]].children {
                 let nod = self.content.get_node(*full_ip).unwrap();
                 if nod.children.len() < 1 {
