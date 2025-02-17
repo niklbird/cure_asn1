@@ -997,7 +997,7 @@ impl Tree {
             lobj = label_obj;
         }
 
-        if let Some(label) = lobj.label {
+        if let Some(label) = &lobj.label {
             let label_s = label.to_string();
             self.tokens.get_mut(&id).unwrap().info = label_s.clone();
             self.labels.insert(label_s, id);
