@@ -131,15 +131,18 @@ fn label_fn_subject_info<'a>(id: usize, tree: &Tree) -> LabelObject {
 
 fn label_fn_roa_ip_seq<'a>(id: usize, tree: &Tree) -> LabelObject {
     let mut labels = Vec::new();
-    let base_obj = LabelObject::new(None, vec![]);
 
-    for child_id in &tree.get_node(id).unwrap().children {
+    if tree.get_node(id).unwrap().children.len() < 2 {
+        return LabelObject::new(Some("roaContent".to_string()), vec![]);
+    }
+
+    let as_id = LabelObject::new(Some("asID".to_string()), vec![]);
+
+    for child_id in &tree.get_node(tree.get_node(id).unwrap().children[1]).unwrap().children {
         let child = tree.get_node(*child_id).unwrap();
-        if child.children.len() < 2 {
-            continue;
-        }
 
         let ip_afi = child.children[0];
+
         let ip_addresses = child.children[1];
         let suffix;
         if tree.get_node(ip_afi).unwrap().data == vec![0, 1]{
@@ -149,20 +152,23 @@ fn label_fn_roa_ip_seq<'a>(id: usize, tree: &Tree) -> LabelObject {
             suffix = "v6";
         }
 
+        let ip_afi_l = LabelObject::new(Some(format!("ipAFI{}", suffix)), vec![]);
+
         let mut ip_counter = 0;
         let mut child_labels = vec![];
+
         for ip_val in &tree.get_node(ip_addresses).unwrap().children{
             let ip_node = tree.get_node(*ip_val).unwrap();
-            let ip = format!("ipAddrBlock{}{}", suffix, ip_counter);
+            let ip = format!("ipAddrBlock{}_{}", suffix, ip_counter);
+
             let mut ip_labels = vec![];
-            let lab = format!("ipAddr{}{}", suffix, ip_counter);
-            let label_ml = format!("ipMl{}{}", suffix, ip_counter);
+            
+            let lab = format!("ipAddr{}_{}", suffix, ip_counter);
+            let label_ml = format!("ipMl{}_{}", suffix, ip_counter);
 
 
             if ip_node.children.len() == 1{
-                let mut o = base_obj.clone();
-                o.label = Some(lab);
-                ip_labels.push(o);
+                ip_labels.push(LabelObject::new(Some(lab), vec![]));
             }
             else{
                 ip_labels.push(LabelObject::new(Some(lab), vec![]));
@@ -173,11 +179,47 @@ fn label_fn_roa_ip_seq<'a>(id: usize, tree: &Tree) -> LabelObject {
             child_labels.push(LabelObject::new(Some(ip), ip_labels));
             ip_counter += 1;
         }
+        
+        let la = LabelObject::new(Some(format!("ipAddrBlocks{}", suffix)), child_labels);
+        let afi_and_ips = LabelObject::new(Some(format!("ipAddrBlocks{}Seq", suffix)), vec![ip_afi_l, la]);
 
-        labels.push(LabelObject::new(Some(format!("ipAddrBlocks{}", suffix)), child_labels));
+        labels.push(afi_and_ips);
     }
-    LabelObject::new(Some("ipAddrBloc".to_string()), vec![])
 
+    LabelObject::new(Some("roaContent".to_string()), vec![as_id, LabelObject::new(Some("ipAddrBlocks".to_string()), labels)])
+}
+
+fn label_fn_mft<'a>(id: usize, tree: &Tree) -> LabelObject {
+    let manifest_number = LabelObject::new(Some("manifestNumber".to_string()), vec![]);
+
+    let this_update = LabelObject::new(Some("thisUpdate".to_string()), vec![]);
+
+    let next_update = LabelObject::new(Some("nextUpdate".to_string()), vec![]);
+
+    let hash_algo = LabelObject::new(Some("manifestHashAlgorithm".to_string()), vec![]);
+
+    let last = tree.get_node(id).unwrap().children.last();
+    if last.is_none(){
+        return LabelObject::new(Some("mftContent".to_string()), vec![manifest_number, this_update, next_update, hash_algo]);
+    }
+
+    let mut val_counter = 0;
+    let mut entries = vec![];
+    for child_id in &tree.get_node(*last.unwrap()).unwrap().children {
+        let child = tree.get_node(*child_id).unwrap();
+        if child.children.len() != 2 {
+            continue;
+        }
+        let name_label = LabelObject::new(Some(format!("mftHashName_{}", val_counter)), vec![]);
+        let hash_label = LabelObject::new(Some(format!("mftHashValue_{}", val_counter)), vec![]);
+        val_counter += 1;
+        let entry = LabelObject::new(Some(format!("mftEntry_{}", val_counter)), vec![name_label, hash_label]);
+        entries.push(entry);
+    }
+    let hashes = LabelObject::new(Some("manifestHashes".to_string()), entries);
+    let enc = LabelObject::new(Some("mftContent".to_string()), vec![manifest_number, this_update, next_update, hash_algo, hashes]);
+    enc
+    
 }
 
 #[derive(Clone, Debug)]
@@ -565,37 +607,38 @@ pub fn label_certificate(typ: &str) -> LabelObject {
 }
 
 pub fn label_tree_roa() -> LabelObject {
-    let ip_field = LabelObject::new(
-        Some("ipAddrBlocksField".to_string()),
-        vec![LabelObject::new(
-            Some("ipAddrBlocksOutSeq".to_string()),
-            vec![LabelObject::new(Some("ipAddrBlocks".to_string()), vec![])],
-        )],
-    );
-    LabelObject::new(
-        Some("encapsulatedContent".to_string()),
-        vec![
-            LabelObject::new(Some("AS-ID".to_string()), vec![]),
-            LabelObject::new(Some("IpAddresses".to_string()), vec![ip_field]),
-        ],
-    )
+    // let ip_field = LabelObject::new(
+    //     Some("ipAddrBlocksField".to_string()),
+    //     vec![LabelObject::new(
+    //         Some("ipAddrBlocksOutSeq".to_string()),
+    //         vec![LabelObject::new(Some("ipAddrBlocks".to_string()), vec![])],
+    //     )],
+    // );
+    LabelObject{
+        label: Some("encapsulatedContent".to_string()),
+        label_info: None,
+        children: vec![],
+        label_function: Some(label_fn_roa_ip_seq),
+    }
 }
 
 pub fn label_tree_manifest() -> LabelObject {
-    let manifest_number = LabelObject::new(Some("manifestNumber".to_string()), vec![]);
+    // let manifest_number = LabelObject::new(Some("manifestNumber".to_string()), vec![]);
 
-    let this_update = LabelObject::new(Some("thisUpdate".to_string()), vec![]);
+    // let this_update = LabelObject::new(Some("thisUpdate".to_string()), vec![]);
 
-    let next_update = LabelObject::new(Some("nextUpdate".to_string()), vec![]);
+    // let next_update = LabelObject::new(Some("nextUpdate".to_string()), vec![]);
 
-    let hash_algo = LabelObject::new(Some("manifestHashAlgorithm".to_string()), vec![]);
+    // let hash_algo = LabelObject::new(Some("manifestHashAlgorithm".to_string()), vec![]);
 
-    let hashes_list = LabelObject::new(Some("manifestHashes".to_string()), vec![]);
+    // let hashes_list = LabelObject::new(Some("manifestHashes".to_string()), vec![]);
 
-    let manifest = LabelObject::new(
-        Some("encapsulatedContent".to_string()),
-        vec![manifest_number, this_update, next_update, hash_algo, hashes_list],
-    );
+    let manifest = LabelObject{
+        label: Some("encapsulatedContent".to_string()),
+        label_info: None,
+        children: vec![],
+        label_function: Some(label_fn_mft),
+    };
     manifest
 }
 
