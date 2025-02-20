@@ -133,14 +133,18 @@ fn label_fn_roa_ip_seq<'a>(id: usize, tree: &Tree) -> LabelObject {
     let mut labels = Vec::new();
 
     if tree.get_node(id).unwrap().children.len() < 2 {
-        return LabelObject::new(Some("roaContent".to_string()), vec![]);
+        return LabelObject::new(Some("encapsulatedContent".to_string()), vec![]);
     }
 
     let as_id = LabelObject::new(Some("asID".to_string()), vec![]);
 
     for child_id in &tree.get_node(tree.get_node(id).unwrap().children[1]).unwrap().children {
+
         let child = tree.get_node(*child_id).unwrap();
 
+        if child.children.len() != 2 {
+            continue;
+        }
         let ip_afi = child.children[0];
 
         let ip_addresses = child.children[1];
@@ -186,7 +190,7 @@ fn label_fn_roa_ip_seq<'a>(id: usize, tree: &Tree) -> LabelObject {
         labels.push(afi_and_ips);
     }
 
-    LabelObject::new(Some("roaContent".to_string()), vec![as_id, LabelObject::new(Some("ipAddrBlocks".to_string()), labels)])
+    LabelObject::new(Some("encapsulatedContent".to_string()), vec![as_id, LabelObject::new(Some("ipAddrBlocks".to_string()), labels)])
 }
 
 fn label_fn_mft<'a>(id: usize, tree: &Tree) -> LabelObject {
@@ -200,7 +204,7 @@ fn label_fn_mft<'a>(id: usize, tree: &Tree) -> LabelObject {
 
     let last = tree.get_node(id).unwrap().children.last();
     if last.is_none(){
-        return LabelObject::new(Some("mftContent".to_string()), vec![manifest_number, this_update, next_update, hash_algo]);
+        return LabelObject::new(Some("encapsulatedContent".to_string()), vec![manifest_number, this_update, next_update, hash_algo]);
     }
 
     let mut val_counter = 0;
@@ -217,7 +221,7 @@ fn label_fn_mft<'a>(id: usize, tree: &Tree) -> LabelObject {
         entries.push(entry);
     }
     let hashes = LabelObject::new(Some("manifestHashes".to_string()), entries);
-    let enc = LabelObject::new(Some("mftContent".to_string()), vec![manifest_number, this_update, next_update, hash_algo, hashes]);
+    let enc = LabelObject::new(Some("encapsulatedContent".to_string()), vec![manifest_number, this_update, next_update, hash_algo, hashes]);
     enc
     
 }
@@ -614,6 +618,7 @@ pub fn label_tree_roa() -> LabelObject {
     //         vec![LabelObject::new(Some("ipAddrBlocks".to_string()), vec![])],
     //     )],
     // );
+
     LabelObject{
         label: Some("encapsulatedContent".to_string()),
         label_info: None,
@@ -663,9 +668,9 @@ pub fn label_tree_gbr() -> LabelObject {
 pub fn label_enc_content_inner(typ: &str) -> Vec<LabelObject> {
     let mut children = Vec::new();
 
-    if typ == "roa" {
+    if typ == "roa" || typ == "iroa" {
         children.push(label_tree_roa());
-    } else if typ == "mft" {
+    } else if typ == "mft" || typ == "imft"{
         children.push(label_tree_manifest());
     } else if typ == "asa" {
         children.push(label_tree_aspa());
@@ -846,6 +851,37 @@ pub fn label_tree(typ: &str) -> Option<LabelObject> {
     } 
     else if typ == "iroa"{
         Some(label_iroa())
+    }
+    else if typ == "imft"{
+        let signed_data = LabelObject::new(
+            Some("signedData".to_string()),
+            vec![
+                LabelObject::new(Some("version".to_string()), vec![]),
+                LabelObject::new(
+                    Some("digestAlgorithmsSet".to_string()),
+                    vec![LabelObject::new(
+                        Some("digestAlgorithmSeq".to_string()),
+                        vec![
+                            LabelObject::new(Some("digestAlgorithm".to_string()), vec![]),
+                            LabelObject::new(Some("digestParameters".to_string()), vec![]),
+                        ],
+                    )],
+                ),
+                label_enc_content(),
+                label_signer_infos(),
+            ],
+        );
+
+        let content_info = LabelObject::new(
+            Some("contentInfo".to_string()),
+            vec![
+                LabelObject::new(Some("contentType".to_string()), vec![]),
+                LabelObject::new(Some("content".to_string()), vec![signed_data]),
+            ],
+        );
+
+        Some(content_info)
+
     }
     else {
         None

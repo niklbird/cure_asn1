@@ -250,7 +250,7 @@ impl ObjectType {
 
     pub fn is_payload(&self) -> bool{
         match self {
-            ObjectType::ROA | ObjectType::ASA | ObjectType::GBR => true,
+            ObjectType::ROA | ObjectType:: IROA | ObjectType::ASA | ObjectType::GBR => true,
             _ => false,
         }
     }

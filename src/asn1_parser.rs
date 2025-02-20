@@ -401,6 +401,16 @@ impl Element {
         }
     }
 
+    pub fn get_tag(&self) -> u8 {
+        match self {
+            Element::Sequence(seq) => seq.tag,
+            Element::Set(set) => set.tag,
+            Element::TLV(tlv) => tlv.tag,
+            Element::OctetString(octet_string) => octet_string.tag,
+            Element::Implicit(implicit) => implicit.tag,
+        }
+    }
+
     pub fn get_data(&self) -> Vec<u8>{
         match self {
             Element::Sequence(seq) => seq.data.clone(),

@@ -474,7 +474,7 @@ pub fn mutate_string(data: Vec<u8>) -> Vec<u8> {
             let mut new_data = data.clone();
             let byte = rng.gen_range(0..data.len());
             new_data[byte] = new_data[byte].wrapping_add(1);
-            return new_data;
+            return new_data; 
         }
         4 => {
             // Insert random char
@@ -958,8 +958,9 @@ pub fn mutate_sequence(tree: &mut Tree, node_id: usize) -> SequenceMutation {
                 }
             }
             let new_id = max_id + 1;
-            let mut new_token = Token::new(Types::TLV, 1, vec![0], node_id, new_id);
-            new_token.visual_tag = vec![rng.gen_range(0..50)];
+            let nt = rng.gen_range(0..50);
+            let mut new_token = Token::new(Types::TLV, 1, vec![0], node_id, new_id, nt);
+            new_token.visual_tag = vec![nt];
             tree.tokens.insert(new_id, new_token);
 
             tree.tokens.get_mut(&node_id).unwrap().children.push(new_id);

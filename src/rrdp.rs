@@ -2,8 +2,14 @@ use base64::{prelude::BASE64_STANDARD, Engine};
 use rand::Rng;
 use sha2::Digest;
 use std::io::Cursor;
-use uuid::Uuid; 
 use xml::writer::{EmitterConfig, XmlEvent};
+
+pub fn random_uuid() -> String {
+    let rand_bytes: [u8; 16] = rand::thread_rng().gen();
+    let hex_string: String = rand_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+    hex_string
+}
+
 
 pub fn get_hash(data: Vec<u8>) -> String {
     let hash = sha2::Sha256::digest(&data);
@@ -18,7 +24,7 @@ pub fn new_snapshot_and_notification(
 ) -> (String, Vec<u8>, String, Vec<u8>) {
     let serial = 1;
 
-    let session_id = Uuid::from_u128(rand::thread_rng().gen()).to_string();
+    let session_id = random_uuid();
     let random = generate_random_bytes();
 
     let base_uri = format!("{}{}/{}", "https://", domain, base_rrdp_dir.0);

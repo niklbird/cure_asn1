@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::{
-    asn1_parser::encode_asn1_length, labeling::{label_tree, LabelObject}, mutator::{self, Mutation}, rpki::ipstring_to_bytes, rpki_utils::{self, byt_to_in}
+    asn1_parser::encode_asn1_length, labeling::{label_tree, LabelObject}, mutator::{self, Mutation}, rpki_utils::{self, byt_to_in}
 };
 use rand::prelude::SliceRandom;
 use rand::Rng;
@@ -83,7 +83,7 @@ impl Token {
         return self.id == 0;
     }
 
-    pub fn new(tag: Types, length: usize, data: Vec<u8>, parent: usize, id: usize) -> Token {
+    pub fn new(tag: Types, length: usize, data: Vec<u8>, parent: usize, id: usize, tag_u: u8) -> Token {
         Token {
             tag: tag.clone(),
             length: length,
@@ -92,7 +92,7 @@ impl Token {
             children: Vec::new(),
             id: id,
             tainted: false,
-            tag_u: get_type_id(tag),
+            tag_u,
             visual_length: length,
             info: String::new(),
             manipulated: false,
@@ -114,7 +114,7 @@ impl Token {
         self.manipulated = true;
     }
 
-    pub fn to_string_val(&self) -> ((u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, Vec<u8>)){
+    pub fn to_string_val(&self) -> (String, (u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, Vec<u8>)){
         let tag_display = format!("{} [tag {}] ", &self.info, self.tag_u);
         let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
@@ -123,7 +123,7 @@ impl Token {
 
         let con_display = format!("{}", hex::encode(&self.data));
         let con_val = (hex::encode(&self.data), con_display, self.data.clone());
-        return (tag_val, len_val, con_val);
+        return (self.info.clone(), tag_val, len_val, con_val);
 
     }
 
@@ -146,16 +146,15 @@ impl Token {
         vec_to_bin(&self.data)
     }
 
-    pub fn to_string_pretty(&self) -> ((u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, Vec<u8>)){ 
+    pub fn to_string_pretty(&self) -> (String, (u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, Vec<u8>)){ 
         match self.tag_u{
             0x30 | 0x50 => { // Sequence
-                let dv = if self.tag_u == self.visual_tag[0] {
+                let tag_display = if self.tag_u == self.visual_tag[0] {
                     "SEQUENCE".to_string()
                 } else {
                     format!("[tag {} (original SEQUENCE)]", self.visual_tag[0])
                 };
 
-                let tag_display = format!("{}  {} ", &self.info, dv);
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} nodes)", self.children.len());
@@ -163,16 +162,15 @@ impl Token {
 
                 let con_display = format!("");
                 let con_val = ("".to_string(), con_display, vec![]);
-                return (tag_val, len_val, con_val);
+                return (self.info.clone(), tag_val, len_val, con_val);
             }
             0x31 | 0x51 => { // Set
-                let dv = if self.tag_u == self.visual_tag[0] {
+                let tag_display = if self.tag_u == self.visual_tag[0] {
                     "SET".to_string()
                 } else {
                     format!("[tag {} (original SET)]", self.visual_tag[0])
                 };
                 
-                let tag_display = format!("{}  {} ", &self.info, dv);
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} nodes)", self.children.len());
@@ -180,16 +178,15 @@ impl Token {
 
                 let con_display = format!("");
                 let con_val = ("".to_string(), con_display, vec![]);
-                return (tag_val, len_val, con_val);
+                return (self.info.clone(), tag_val, len_val, con_val);
             }
             0x04 | 0x24 => { // Octetstring
-                let dv = if self.tag_u == self.visual_tag[0] {
+                let tag_display = if self.tag_u == self.visual_tag[0] {
                     "OCTETSTRING".to_string()
                 } else {
                     format!("[tag {} (original OCTETSTRING)]", self.visual_tag[0])
                 };
                 
-                let tag_display = format!("{}  {} ", &self.info, dv);
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} byte)", self.length);
@@ -204,51 +201,48 @@ impl Token {
                 };
 
                 let con_val = (hex::encode(&val), con_display, val);
-                return (tag_val, len_val, con_val);
+                return (self.info.clone(), tag_val, len_val, con_val);
             }
             0x06 | 0x26 => { // Oid
-                let dv = if self.tag_u == self.visual_tag[0] {
+                let tag_display = if self.tag_u == self.visual_tag[0] {
                     "OBJECT IDENTIFIER".to_string()
                 } else {
                     format!("[tag {} (original OBJECT IDENTIFIER)]", self.visual_tag[0])
                 };
                 
-                let tag_display = format!("{}  {} ", &self.info, dv);
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
-                let len_display = format!("");
+                let len_display = format!("({} byte)", self.length);
                 let len_val = (self.length, len_display, encode_asn1_length(self.length));
 
                 let con_display = format!("{}", decode_oid_to_string(&self.data));
                 let con_val = (con_display.clone(), con_display, self.data.clone());
-                return (tag_val, len_val, con_val);
+                return (self.info.clone(), tag_val, len_val, con_val);
 
             }
             0x02 | 0x22 => { // Integer
-                let dv = if self.tag_u == self.visual_tag[0] {
+                let tag_display = if self.tag_u == self.visual_tag[0] {
                     "INTEGER".to_string()
                 } else {
                     format!("[tag {} (original INTEGER)]", self.visual_tag[0])
                 };
-                let tag_display = format!("{}  {} ", &self.info, dv);
 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
-                let len_display = format!("");
+                let len_display = format!("({} byte)", self.length);
                 let len_val = (self.length, len_display, encode_asn1_length(self.length));
 
                 let con_display = format!("{}", byt_to_in(&self.data));
                 let con_val = (con_display.clone(), con_display, self.data.clone());
-                return (tag_val, len_val, con_val);
+                return (self.info.clone(), tag_val, len_val, con_val);
 
             }
             0xA0..=0xA6 => { // Implicit
-                let dv = if self.tag_u == self.visual_tag[0] {
+                let tag_display = if self.tag_u == self.visual_tag[0] {
                     "[Implicit]".to_string()
                 } else {
                     format!("[tag {} (original Implicit)]", self.visual_tag[0])
                 };
-                let tag_display = format!("{}  {} ", &self.info, dv);
 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
@@ -257,16 +251,15 @@ impl Token {
 
                 let con_display = format!("");
                 let con_val = ("".to_string(), con_display, vec![]);
-                return (tag_val, len_val, con_val);
+                return (self.info.clone(), tag_val, len_val, con_val);
             }
             0x0E | 0x2E => { // TIME
                 
-                let dv = if self.tag_u == self.visual_tag[0] {
+                let tag_display = if self.tag_u == self.visual_tag[0] {
                     "TIME".to_string()
                 } else {
                     format!("[tag {} (original TIME)]", self.visual_tag[0])
                 };
-                let tag_display = format!("{}  {} ", &self.info, dv);
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = "".to_string();
@@ -284,15 +277,14 @@ impl Token {
 
                 let con_val = (con_display.clone(), con_display, self.data.clone());
 
-                return (tag_val, len_val, con_val);
+                return (self.info.clone(), tag_val, len_val, con_val);
             }
             0x17 | 0x37 => { // UTC Time
-                let dv = if self.tag_u == self.visual_tag[0] {
+                let tag_display = if self.tag_u == self.visual_tag[0] {
                     "UTCTime".to_string()
                 } else {
                     format!("[tag {} (original UTCTime)]", self.visual_tag[0])
                 };
-                let tag_display = format!("{}  {} ", &self.info, dv);
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = "".to_string();
@@ -310,15 +302,14 @@ impl Token {
 
                 let con_val = (con_display.clone(), con_display, self.data.clone());
 
-                return (tag_val, len_val, con_val);
+                return (self.info.clone(), tag_val, len_val, con_val);
                 }
             0x18 | 0x38 => { // GeneralizedTime
-                let dv = if self.tag_u == self.visual_tag[0] {
+                let tag_display = if self.tag_u == self.visual_tag[0] {
                     "GeneralizedTime".to_string()
                 } else {
                     format!("[tag {} (original GeneralizedTime)]", self.visual_tag[0])
                 };
-                let tag_display = format!("{}  {} ", &self.info, dv);
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = "".to_string();
@@ -336,15 +327,14 @@ impl Token {
 
                 let con_val = (con_display.clone(), con_display, self.data.clone());
 
-                return (tag_val, len_val, con_val);
+                return (self.info.clone(), tag_val, len_val, con_val);
             }
             0x07 | 0x27 | 0x0C | 0x2C | 0x12..=0x16 | 0x32..=0x36 | 0x19 ..=0x1E | 0x39..=0x3E => { // String
-                let dv = if self.tag_u == self.visual_tag[0] {
+                let tag_display = if self.tag_u == self.visual_tag[0] {
                     "String".to_string()
                 } else {
                     format!("[tag {} (original String)]", self.visual_tag[0])
                 };
-                let tag_display = format!("{}  {} ", &self.info, dv);
 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
@@ -354,15 +344,14 @@ impl Token {
                 let data_dec = from_utf8(&self.data).unwrap_or(&tmp);
 
                 let con_val = (data_dec.to_string(), data_dec.to_string(), self.data.clone());
-                return (tag_val, len_val, con_val);
+                return (self.info.clone(), tag_val, len_val, con_val);
             } 
             0x03 | 0x23 => { // BIT STRING
-                let dv = if self.tag_u == self.visual_tag[0] {
+                let tag_display = if self.tag_u == self.visual_tag[0] {
                     "Bit String".to_string()
                 } else {
                     format!("[tag {} (original Bit String)]", self.visual_tag[0])
                 };
-                let tag_display = format!("{}  {} ", &self.info, dv);
 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
                 let len_display = format!("({} bits)", (self.data.len() - 1) * 8 - self.data[0] as usize);
@@ -371,7 +360,7 @@ impl Token {
                 let encoded = self.pretty_bitstring();
                 let bs = vec_to_bin(&self.data);
                 let con_val = (bs.to_string(), encoded.to_string(), self.data.clone());
-                return (tag_val, len_val, con_val);
+                return (self.info.clone(), tag_val, len_val, con_val);
             }   
             _ => {
                 return self.to_string_val();
@@ -418,8 +407,8 @@ impl Tree {
 
     pub fn add_node(&mut self, tag: u8, content: Vec<u8>, parent: usize, label: Option<String>){
         let new_id = self.cur_index + 1;
-        let mut token = Token::new(Types::from_type_id(tag), content.len(), content, parent, new_id);
-        
+        let mut token = Token::new(Types::from_type_id(tag), content.len(), content, parent, new_id, tag);
+
         token.visual_tag = vec![tag];
         token.tainted = true;
 
@@ -696,6 +685,7 @@ impl Tree {
         match id {
             Some(id) => {
                 if !self.tokens.contains_key(&id) {
+                    println!("Label {} does not exist", label);
                     return true;
                 }
                 return self.tokens.get(id).unwrap().manipulated;
@@ -877,7 +867,7 @@ impl Tree {
             Element::Sequence(seq) => {
                 let new_id = self.cur_index;
 
-                let mut token = Token::new(Types::Sequence, seq.total_len, vec![], parent, new_id);
+                let mut token = Token::new(Types::Sequence, seq.total_len, vec![], parent, new_id, seq.tag);
                 token.tag_u = seq.tag;
 
                 self.cur_index += 1;
@@ -892,7 +882,7 @@ impl Tree {
             Element::TLV(t) => {
                 let new_id = self.cur_index;
 
-                let mut token = Token::new(Types::TLV, t.total_len, t.value, parent, new_id);
+                let mut token = Token::new(Types::TLV, t.total_len, t.value, parent, new_id, t.tag);
                 token.tag_u = t.tag;
                 token.visual_tag = vec![t.tag];
 
@@ -905,7 +895,7 @@ impl Tree {
             Element::Set(set) => {
                 let new_id = self.cur_index;
 
-                let mut token = Token::new(Types::Set, set.total_len, vec![], parent, new_id);
+                let mut token = Token::new(Types::Set, set.total_len, vec![], parent, new_id, set.tag);
                 token.tag_u = set.tag;
 
                 self.cur_index += 1;
@@ -921,7 +911,7 @@ impl Tree {
             Element::OctetString(o) => {
                 let new_id = self.cur_index;
 
-                let mut token = Token::new(Types::OctetString, o.total_len, vec![], parent, new_id);
+                let mut token = Token::new(Types::OctetString, o.total_len, vec![], parent, new_id, o.tag);
                 token.tag_u = o.tag;
 
                 self.cur_index += 1;
@@ -940,7 +930,7 @@ impl Tree {
             Element::Implicit(im) => {
                 let new_id = self.cur_index;
 
-                let mut token = Token::new(Types::Implicit, im.total_len, vec![], parent, new_id);
+                let mut token = Token::new(Types::Implicit, im.total_len, vec![], parent, new_id, im.tag);
                 token.tag_u = im.tag;
                 token.visual_tag = vec![im.tag.into()];
 
