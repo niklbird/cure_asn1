@@ -4,10 +4,25 @@ use sha2::Digest;
 use std::io::Cursor;
 use xml::writer::{EmitterConfig, XmlEvent};
 
+
 pub fn random_uuid() -> String {
-    let rand_bytes: [u8; 16] = rand::thread_rng().gen();
-    let hex_string: String = rand_bytes.iter().map(|b| format!("{:02x}", b)).collect();
-    hex_string
+    let mut rand_bytes: [u8; 16] = rand::thread_rng().gen();
+
+    // Set the version (4) in the correct position
+    rand_bytes[6] = (rand_bytes[6] & 0x0F) | 0x40;
+
+    // Set the variant (RFC 4122)
+    rand_bytes[8] = (rand_bytes[8] & 0x3F) | 0x80;
+
+    // Format as a standard UUID string
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        rand_bytes[0], rand_bytes[1], rand_bytes[2], rand_bytes[3],
+        rand_bytes[4], rand_bytes[5],
+        rand_bytes[6], rand_bytes[7],
+        rand_bytes[8], rand_bytes[9],
+        rand_bytes[10], rand_bytes[11], rand_bytes[12], rand_bytes[13], rand_bytes[14], rand_bytes[15]
+    )
 }
 
 
@@ -60,6 +75,7 @@ pub fn new_added_deltas(
     start_serial: u32,
     session_id: &str,
     base_rrdp_dir: &str,
+    base_rrdp_dir_l: &str,
     domain: &str,
 ) -> (String, Vec<u8>, String, Vec<u8>, Vec<(String, Vec<u8>)>) {
     let base_uri = format!("{}{}/{}", "https://", domain, base_rrdp_dir);
@@ -83,7 +99,7 @@ pub fn new_added_deltas(
 
         let delta_uri_l = format!(
             "{}{}/{}/{}/delta.xml",
-            base_rrdp_dir,
+            base_rrdp_dir_l,
             &session_id,
             serial.to_string(),
             random
@@ -104,10 +120,10 @@ pub fn new_added_deltas(
         serial.to_string(),
         random
     );
-    let notification_uri_l = format!("{}notification.xml", base_rrdp_dir);
+    let notification_uri_l = format!("{}notification.xml", base_rrdp_dir_l);
     let snapshot_uri_l = format!(
         "{}{}/{}/{}/snapshot.xml",
-        base_rrdp_dir,
+        base_rrdp_dir_l,
         &session_id,
         serial.to_string(),
         random
@@ -306,10 +322,11 @@ impl XMLNotification {
         return None;
     }
 
-    pub fn get_snapshot_uri_local(&self) -> String {
+    pub fn get_snapshot_uri_local(&self, base_url: &str) -> String {
         let uri = self.get_snapshot_uri().unwrap();
         let uri = uri.replace("https://", "");
         let uri = uri.split("/").collect::<Vec<&str>>()[1..].join("/");
+        let uri = format!("{}{}", base_url, uri);
         return uri;
     }
 

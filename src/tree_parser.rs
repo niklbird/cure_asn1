@@ -7,8 +7,9 @@ use std::{
 };
 
 use crate::{
-    asn1_parser::encode_asn1_length, labeling::{label_tree, LabelObject}, mutator::{self, Mutation}, rpki_utils::{self, byt_to_in}
+    asn1_parser::encode_asn1_length, labeling::{label_tree, LabelObject}, mutator::{self, Mutation}, prot, rpki_utils::{self, byt_to_in}
 };
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use rand::prelude::SliceRandom;
 use rand::Rng;
 
@@ -122,7 +123,11 @@ impl Token {
         let len_val = (self.length, len_display, encode_asn1_length(self.length));
 
         let con_display = format!("{}", hex::encode(&self.data));
-        let con_val = (hex::encode(&self.data), con_display, self.data.clone());
+        let try_utf8 = from_utf8(&self.data);
+        let con_val = match try_utf8{
+            Ok(val) => (val.to_string(), val.to_string(), self.data.clone()),
+            Err(_) => (con_display.clone(), con_display, self.data.clone())
+        };
         return (self.info.clone(), tag_val, len_val, con_val);
 
     }
@@ -145,6 +150,29 @@ impl Token {
 
         vec_to_bin(&self.data)
     }
+
+
+    fn format_timestamp(&self, timestamp: &str) -> Option<String> {
+        if timestamp.len() != 13 || !timestamp.ends_with('Z') {
+            return None; // Invalid format
+        }
+
+        let year = 2000 + timestamp[0..2].parse::<i32>().ok()?; // Assuming 21st century
+        let month = timestamp[2..4].parse::<u32>().ok()?;
+        let day = timestamp[4..6].parse::<u32>().ok()?;
+        let hour = timestamp[6..8].parse::<u32>().ok()?;
+        let minute = timestamp[8..10].parse::<u32>().ok()?;
+        let second = timestamp[10..12].parse::<u32>().ok()?;
+
+        let naive_dt = NaiveDateTime::from_timestamp_opt(
+            Utc.with_ymd_and_hms(year, month, day, hour, minute, second).single()?.timestamp(),
+            0,
+        )?;
+
+        Some(naive_dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+    }
+
+
 
     pub fn to_string_pretty(&self) -> (String, (u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, Vec<u8>)){ 
         match self.tag_u{
@@ -202,6 +230,23 @@ impl Token {
 
                 let con_val = (hex::encode(&val), con_display, val);
                 return (self.info.clone(), tag_val, len_val, con_val);
+            }
+            0x05 => { // Null
+                let tag_display = if self.tag_u == self.visual_tag[0] {
+                    "NULL".to_string()
+                } else {
+                    format!("[tag {} (original NULL)]", self.visual_tag[0])
+                };
+
+                let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
+
+                let len_display = format!("({} byte)", self.length);
+                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+
+                let con_display = hex::encode(&self.data);
+                let con_val = (con_display.clone(), con_display, self.data.clone());
+                return (self.info.clone(), tag_val, len_val, con_val);
+
             }
             0x06 | 0x26 => { // Oid
                 let tag_display = if self.tag_u == self.visual_tag[0] {
@@ -269,7 +314,7 @@ impl Token {
                 let data_dec = from_utf8(&self.data).unwrap_or_default();
                 let parsed = chrono::DateTime::parse_from_rfc3339(data_dec);
                 if parsed.is_err(){
-                    return self.to_string_val();
+                    return self.to_string_val(); // TODO: Fix this
                 }
 
                 let parsed = parsed.unwrap();
@@ -287,18 +332,12 @@ impl Token {
                 };
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
-                let len_display = "".to_string();
+                let len_display = format!("({} bytes)", self.length);
                 let len_val = (self.length, len_display, encode_asn1_length(self.length));
 
-
                 let data_dec = from_utf8(&self.data).unwrap_or_default();
-                let parsed = chrono::DateTime::parse_from_str(data_dec, "%Y-%m-%d %H:%M:%S");
-                if parsed.is_err(){
-                    return self.to_string_val();
-                }
 
-                let parsed = parsed.unwrap();
-                let con_display = parsed.format("%Y-%m-%d %H:%M:%S").to_string();
+                let con_display = self.format_timestamp(data_dec).unwrap();
 
                 let con_val = (con_display.clone(), con_display, self.data.clone());
 
@@ -312,18 +351,12 @@ impl Token {
                 };
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
-                let len_display = "".to_string();
+                let len_display = format!("({} bytes)", self.length);
                 let len_val = (self.length, len_display, encode_asn1_length(self.length));
 
-
                 let data_dec = from_utf8(&self.data).unwrap_or_default();
-                let parsed = chrono::DateTime::parse_from_str(&data_dec, "%Y-%m-%d %H:%M:%S");
-                if parsed.is_err(){
-                    return self.to_string_val();
-                }
 
-                let parsed = parsed.unwrap();
-                let con_display = parsed.format("%Y-%m-%d %H:%M:%S").to_string();
+                let con_display = self.format_timestamp(data_dec).unwrap();
 
                 let con_val = (con_display.clone(), con_display, self.data.clone());
 
@@ -410,6 +443,7 @@ impl Tree {
         let mut token = Token::new(Types::from_type_id(tag), content.len(), content, parent, new_id, tag);
 
         token.visual_tag = vec![tag];
+        token.info = label.clone().unwrap_or("".to_string());
         token.tainted = true;
 
         if label.is_some(){
@@ -962,6 +996,10 @@ impl Tree {
         data
     }
 
+    pub fn encode_proto(&self) -> Vec<u8>{
+        prot::parsing::proto_from_roa(self)
+    }
+
     pub fn label_tree(&mut self) {
         let label_obj = label_tree(&self.obj_type);
 
@@ -1214,9 +1252,12 @@ impl Tree {
                     s += &format!("{} [{}] Typ Imp {:?}\n", space, node_id, node.data);
                     return (1, s);
                 } else {
-                    let res = self.to_string(node.children[0], cur_depth + 1);
-                    c += res.0;
-                    s += &res.1;
+                    for item in &node.children {
+                        // Recursive handling of the sequence items, which are also `GenericObject`s.
+                        let res = self.to_string(*item, cur_depth + 1);
+                        c += res.0;
+                        s += &res.1;
+                    }
                     return (c, s);
                 }
             }

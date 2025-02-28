@@ -190,6 +190,11 @@ fn label_fn_roa_ip_seq<'a>(id: usize, tree: &Tree) -> LabelObject {
         labels.push(afi_and_ips);
     }
 
+    if tree.get_node(id).unwrap().children.len() > 2{
+        return LabelObject::new(Some("encapsulatedContent".to_string()), vec![as_id, LabelObject::new(Some("ipAddrBlocks".to_string()), labels), label_rpki_info()])
+    }
+
+     
     LabelObject::new(Some("encapsulatedContent".to_string()), vec![as_id, LabelObject::new(Some("ipAddrBlocks".to_string()), labels)])
 }
 
@@ -667,8 +672,7 @@ pub fn label_tree_gbr() -> LabelObject {
 
 pub fn label_enc_content_inner(typ: &str) -> Vec<LabelObject> {
     let mut children = Vec::new();
-
-    if typ == "roa" || typ == "iroa" {
+    if typ == "roa" || typ == "iroa" || typ == "sroa" || typ == "rroa" {
         children.push(label_tree_roa());
     } else if typ == "mft" || typ == "imft"{
         children.push(label_tree_manifest());
@@ -797,20 +801,20 @@ pub fn label_rpki_info() -> LabelObject{
 }
 
 pub fn label_iroa() -> LabelObject{
-    let oc_label = LabelObject {
+    return LabelObject {
         label: Some("eContentOuterOctet".to_string()),
         label_info: None,
         children: vec![],
-        label_function: Some(label_fn_encoded_content),
+        label_function: Some(label_fn_roa_ip_seq),
     };
-    LabelObject::new(
-        Some("roaSeq".to_string()),
-        vec![
-            LabelObject::new(Some("eContentType".to_string()), vec![]),
-            LabelObject::new(Some("eContent".to_string()), vec![oc_label]),
-            label_rpki_info()
-        ],
-    )
+    // LabelObject::new(
+    //     Some("roaSeq".to_string()),
+    //     vec![
+    //         LabelObject::new(Some("eContentType".to_string()), vec![]),
+    //         LabelObject::new(Some("eContent".to_string()), vec![oc_label]),
+    //         label_rpki_info()
+    //     ],
+    // )
 
 
 }
@@ -849,10 +853,10 @@ pub fn label_tree(typ: &str) -> Option<LabelObject> {
     } else if typ == "cert" || typ == "cer" || typ == "crl" {
         Some(label_certificate(typ))
     } 
-    else if typ == "iroa"{
+    else if typ == "iroa" || typ == "rroa"{
         Some(label_iroa())
     }
-    else if typ == "imft"{
+    else if typ == "imft" || typ == "sroa"{
         let signed_data = LabelObject::new(
             Some("signedData".to_string()),
             vec![

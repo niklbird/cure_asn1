@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use crate::rrdp::{generate_random_bytes, random_uuid};
 use prost::Message;
-use sha256::digest;
+use sha2::Digest;
 
-use super::parsing::{CertificateAuthority, NotificationFile, ObjectEntry, SnapshotFile, SnapshotReference};
+use super::parsing::{CertificateAuthority, Manifest, NotificationFile, ObjectEntry, SnapshotFile, SnapshotReference, ROA};
 
 
 pub fn create_snapshot(data: HashMap<String, Vec<(String, Vec<u8>)>>, serial: u64, session_id: &str, domain: &str, base_repo_dir: &str, base_rrdp_dir: &str, base_rrdp_dir_l: &str) -> (String, String, Vec<u8>){
@@ -63,7 +63,7 @@ pub fn create_snapshot(data: HashMap<String, Vec<(String, Vec<u8>)>>, serial: u6
 }
 
 pub fn create_notification(snapshot_uri: &str, snapshot_content: &Vec<u8>, serial: u64, session_id: &str, base_rrdp_dir_l: &str) -> (String, Vec<u8>){
-    let snapshot_hash = digest(snapshot_content);
+    let snapshot_hash = hex::encode(sha2::Sha256::digest(&snapshot_content));
 
     let notification = NotificationFile{
         version: "1".to_string(),
@@ -103,4 +103,18 @@ pub fn decode_snapshot(snapshot_content: &Vec<u8>) -> Result<SnapshotFile, Strin
 
 pub fn decode_notification(notification_content: &Vec<u8>) -> Result<NotificationFile, String>{
     NotificationFile::decode(notification_content.as_slice()).map_err(|e| format!("Failed to decode notification: {}", e))
+}
+
+pub fn decode_roa(roa_content: &Vec<u8>) -> Result<ROA, String>{
+    ROA::decode(roa_content.as_slice()).map_err(|e| format!("Failed to decode roa: {}", e))
+}
+
+pub fn decode_mft(mft_content: &Vec<u8>) -> Result<Manifest, String>{
+    Manifest::decode(mft_content.as_slice()).map_err(|e| format!("Failed to decode manifest: {}", e))
+}
+
+pub fn encode_mft(mft: &Manifest) -> Result<Vec<u8>, String>{
+    let mut buffer = Vec::new();
+    mft.encode(&mut buffer).map_err(|e| format!("Failed to encode manifest: {}", e))?;
+    Ok(buffer)
 }

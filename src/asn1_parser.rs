@@ -440,6 +440,16 @@ impl Element {
             Element::Implicit(imp) => imp.value[0].get_data(),
         }
     }
+
+    pub fn add_child(&mut self, child: Element){
+        match self {
+            Element::Sequence(seq) => seq.value.push(child),
+            Element::Set(set) => set.value.push(child),
+            Element::TLV(_) => (),
+            Element::OctetString(_) => (),
+            Element::Implicit(imp) => imp.value.push(child),
+        }
+    }
 }
 
 impl WriteASN1 for Element {
