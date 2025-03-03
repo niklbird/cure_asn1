@@ -18,7 +18,7 @@ pub fn new_snapshot_and_notification(
 ) -> (String, Vec<u8>, String, Vec<u8>) {
     let serial = 1;
 
-    let session_id = Uuid::from_u128(rand::thread_rng().gen()).to_string();
+    let session_id = Uuid::new_v4().to_string();
     let random = generate_random_bytes();
 
     let base_uri = format!("{}{}/{}", "https://", domain, base_rrdp_dir.0);
