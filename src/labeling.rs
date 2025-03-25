@@ -918,12 +918,6 @@ pub fn label_tree(typ: &str, tree: &Tree) -> Option<LabelObject> {
         } else {
             Some(label_certificate(typ))
         }
-        //let id = tree.get_node_by_label("extensionsField");
-        //if id.is_none() {
-        //    Some(label_empty_crl())
-        //} else {
-        //    Some(label_certificate(typ))
-        //}
     } else if typ == "iroa"{
         Some(label_iroa())
     }

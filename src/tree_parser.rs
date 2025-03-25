@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::{
-    asn1_parser::encode_asn1_length, labeling::{label_empty_crl, label_tree, LabelObject}, mutator::{self, Mutation}, rpki_utils::{self, byt_to_in}
+    asn1_parser::encode_asn1_length, labeling::{label_tree, LabelObject}, mutator::{self, Mutation}, rpki_utils::{self, byt_to_in}
 };
 use rand::prelude::SliceRandom;
 use rand::Rng;
