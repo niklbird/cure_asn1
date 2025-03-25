@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::{
-    asn1_parser::encode_asn1_length, labeling::{label_tree, LabelObject}, mutator::{self, Mutation}, rpki_utils::{self, byt_to_in}
+    asn1_parser::encode_asn1_length, labeling::{label_empty_crl, label_tree, LabelObject}, mutator::{self, Mutation}, rpki_utils::{self, byt_to_in}
 };
 use rand::prelude::SliceRandom;
 use rand::Rng;
@@ -1021,7 +1021,7 @@ impl Tree {
     }
 
     pub fn label_tree(&mut self) {
-        let label_obj = label_tree(&self.obj_type);
+        let label_obj = label_tree(&self.obj_type, &self);
 
         if label_obj.is_none() {
             // Unknown Object Type -> Cant label
@@ -1623,6 +1623,29 @@ impl Tree {
             return true;
         }
         return false;
+    }
+
+    fn print_token(&self, t: &Token, recursion: usize) {
+        let children = &t.children;
+        let output: String = "\t".repeat(recursion);
+        println!("{} {} {} {} {} {} {} {:?}", output, t.id, t.info, t.length, t.visual_length, t.tainted, t.manipulated, t.data);
+        for c in children {
+            if let Some(node) = self.get_node(*c) {
+                self.print_token(&node, recursion+1);
+            }
+        }
+    }
+    pub fn print_tree(&self) {
+        let root = self.get_root();
+        self.print_token(root, 0);
+    }
+
+    pub fn get_header_len(&self, n: &Token) -> usize {
+        let data_len = n.length;
+        let pid = n.parent;
+        let pn = self.get_node(pid).unwrap();
+        let pdata_len = pn.length;
+        return pdata_len - data_len;
     }
 }
 

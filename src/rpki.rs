@@ -35,7 +35,7 @@ pub fn parse_rpki_object(data: &Vec<u8>, typ: &ObjectType) -> Option<RpkiObject>
 }
 
 
-
+#[derive(Debug)]
 pub struct RpkiObject {
     pub content: Tree,
     pub typ: String,
