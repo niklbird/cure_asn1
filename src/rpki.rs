@@ -21,12 +21,15 @@ use std::error::Error;
 
 pub fn parse_rpki_object(data: &Vec<u8>, typ: &ObjectType) -> Option<RpkiObject> {
     let root = crate::asn1_parser::parse_asn1_object_slim(data);
+    println!("root: {:?}", root);
     if root.is_err() {
         println!("Error during parsing {:?}", root);
         return None;
     }
 
-    let tree = Tree::generate_tree(root.unwrap(), typ.to_string());
+    let mut tree = Tree::generate_tree(root.unwrap(), typ.to_string());
+
+    tree.fix_octetstrings(&typ.to_string());
 
     Some(RpkiObject {
         content: tree,

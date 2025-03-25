@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::{
-    asn1_parser::encode_asn1_length, labeling::{label_tree, LabelObject}, mutator::{self, Mutation}, rpki_utils::{self, byt_to_in}
+    asn1_parser::encode_asn1_length, labeling::{label_tree, LabelObject}, mutator::{self, Mutation}, rpki_utils::{self, byt_to_in}, tree_paths::{CertificatePaths, MFTPaths, ROAPaths}
 };
 use rand::prelude::SliceRandom;
 use rand::Rng;
@@ -1646,6 +1646,43 @@ impl Tree {
         let pn = self.get_node(pid).unwrap();
         let pdata_len = pn.length;
         return pdata_len - data_len;
+    }
+
+    pub fn fix_octetstrings(&mut self, typ: &str) {
+        match typ {
+            "roa" => {
+                let paths = ROAPaths::init();
+                for p in [paths.cert_paths.ski, paths.sig_inf_paths.msg_dgst, paths.sig_inf_paths.signature] {
+                    let id = self.get_id_by_path(&p).unwrap();
+                    let n = self.get_node(id).unwrap();
+                    let data = self.encode_node_content(n, true);
+                    self.deep_delete_children(id);
+                    self.set_data(&p, &data, Types::OctetString);
+                }
+            },
+            "cer" => {
+                let paths = CertificatePaths::init_cert();
+                for p in [paths.ski] {
+                    let id = self.get_id_by_path(&p).unwrap();
+                    let n = self.get_node(id).unwrap();
+                    let data = self.encode_node_content(n, true);
+                    self.deep_delete_children(id);
+                    self.set_data(&p, &data, Types::OctetString);
+                }
+            },
+            "crl" => {},
+            "mft" => {
+                let paths = MFTPaths::init();
+                for p in [paths.cert_paths.ski, paths.sig_inf_paths.msg_dgst, paths.sig_inf_paths.signature] {
+                    let id = self.get_id_by_path(&p).unwrap();
+                    let n = self.get_node(id).unwrap();
+                    let data = self.encode_node_content(n, true);
+                    self.deep_delete_children(id);
+                    self.set_data(&p, &data, Types::OctetString);
+                }
+            },
+            _ => {},
+        }
     }
 }
 

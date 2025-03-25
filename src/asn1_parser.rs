@@ -73,8 +73,18 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
 
     let mut cursor = cursor;
 
+    let mut print_enabled = false;
+    if data[cursor] == 160 {
+        print_enabled = true;
+        println!("data = {:?}", &data.to_vec()[cursor..]);
+        println!("cursor: {}", cursor);
+        println!("length: {:?}", length);
+    }
     let start_cursor = cursor;
     while cursor + 2 < data.len() {
+        if print_enabled {
+            println!("LOOP cursor = {}", cursor);
+        }
         // println!("Data {:?}", &data[cursor..cursor + 10]);
 
         let tag = data[cursor];
@@ -83,6 +93,9 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
         cursor += 1;
         // println!("Looking at data {:?} with tag {}", &data[cursor..cursor + 10], tag);
         if is_nested(tag) {
+            if print_enabled {
+                println!("nested!");
+            }
             // 128 (0x80) => undefined length
             if data[cursor] == 128 {
                 cursor += 1;
@@ -183,7 +196,14 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
                 }
             }
         } else {
+            if print_enabled {
+                println!("NOT nested!");
+            }
+
             if data[cursor] == 128 {
+                if print_enabled {
+                    println!("data[cursor] == 128");
+                }
                 cursor += 1;
                 let first_occurrence = data[cursor..].windows(2).position(|window| window == [0, 0]);
 
@@ -226,11 +246,21 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
                 // +2 for the 0x00 0x00
                 cursor += len + 2;
             } else {
+                if print_enabled {
+                    println!("data[cursor] == {} != 128", data[cursor]);
+                }
                 let (len, len_size) = parse_length(&data[cursor..])?;
+                if print_enabled {
+                    println!("(len, len_size) = ({}, {})", len, len_size)
+                }
                 if data.len() < cursor + len_size + len {
                     return Err(ASN1Error {
                         message: "Length longer than Data".to_string(),
                     });
+                } else {
+                    if print_enabled {
+                        println!("msg not too long");
+                    }
                 }
 
                 content.extend(&data[cursor..cursor + len_size]);
@@ -240,7 +270,13 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
                 elements.push(create_element(tag, len, &data[cursor..cursor + len].to_vec(), None));
 
                 cursor += len;
+                if print_enabled {
+                    println!("Created elem. Remaining: {:?}", &data.to_vec()[cursor..]);
+                }
             }
+        }
+        if print_enabled {
+            println!("elements0: {:?}", elements);
         }
         if cursor >= data.len()
             || length.is_some() && cursor - start_cursor >= length.unwrap()
@@ -249,9 +285,14 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
             if cursor < data.len() && length.is_none() && data[cursor] == 0 && data[cursor + 1] == 0 {
                 cursor += 2;
             }
-
+            if print_enabled {
+                println!("Returning {:?}, {}, {:?}", content, cursor, elements);
+            }
             return Ok((content, cursor, elements));
         }
+    }
+    if print_enabled {
+        println!("elements: {:?}", elements);
     }
     return Err(ASN1Error {
         message: "No end of content marker found".to_string(),
