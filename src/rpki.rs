@@ -21,7 +21,6 @@ use std::error::Error;
 
 pub fn parse_rpki_object(data: &Vec<u8>, typ: &ObjectType) -> Option<RpkiObject> {
     let root = crate::asn1_parser::parse_asn1_object_slim(data);
-    println!("root: {:?}", root);
     if root.is_err() {
         println!("Error during parsing {:?}", root);
         return None;
