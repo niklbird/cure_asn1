@@ -24,7 +24,7 @@ pub fn create_element(tag: u8, length: usize, data: &[u8], children: Option<Vec<
     match tag {
         4 | 36 => {
             let value;
-            if children.is_some() {
+            if children.is_some() && children.as_ref().unwrap().len() == 1 {
                 value = Some(Box::new(children.unwrap()[0].clone()));
             } else {
                 value = None;
@@ -75,13 +75,10 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
 
     let start_cursor = cursor;
     while cursor + 2 < data.len() {
-        // println!("Data {:?}", &data[cursor..cursor + 10]);
-
         let tag = data[cursor];
         content.push(tag);
 
         cursor += 1;
-        // println!("Looking at data {:?} with tag {}", &data[cursor..cursor + 10], tag);
         if is_nested(tag) {
             // 128 (0x80) => undefined length
             if data[cursor] == 128 {
@@ -249,7 +246,6 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
             if cursor < data.len() && length.is_none() && data[cursor] == 0 && data[cursor + 1] == 0 {
                 cursor += 2;
             }
-
             return Ok((content, cursor, elements));
         }
     }

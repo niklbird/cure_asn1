@@ -17,11 +17,34 @@ use std::{
 };
 
 use std::error::Error;
+
+
+pub fn parse_rpki_object(data: &Vec<u8>, typ: &ObjectType) -> Option<RpkiObject> {
+    let root = crate::asn1_parser::parse_asn1_object_slim(data);
+    if root.is_err() {
+        println!("Error during parsing {:?}", root);
+        return None;
+    }
+
+    let mut tree = Tree::generate_tree(root.unwrap(), typ.to_string());
+
+    tree.fix_octetstrings(&typ.to_string());
+
+    Some(RpkiObject {
+        content: tree,
+        typ: typ.to_string(),
+    })
+}
+
+
+#[derive(Debug)]
 pub struct RpkiObject {
     pub content: Tree,
     pub typ: String,
 }
 
+/// Implements an RPKI Object
+/// Provides methods to extract common information from the object
 impl RpkiObject {
     pub fn new(content: Tree, typ: String) -> RpkiObject {
         RpkiObject { content, typ }
@@ -63,8 +86,8 @@ impl RpkiObject {
         let n = n.unwrap();
         for child in &n.children {
             let child_node = self.content.get_node(*child).unwrap();
-            let family = byt_to_in(self.content.tokens[&child_node.children[0]].data.clone());
-            
+            let family = byt_to_in(&self.content.tokens[&child_node.children[0]].data.clone());
+
             for full_ip in &self.content.tokens[&child_node.children[1]].children {
                 let nod = self.content.get_node(*full_ip).unwrap();
                 if nod.children.len() < 1 {
@@ -89,7 +112,7 @@ impl RpkiObject {
                     if child.data.len() == 1 {
                         ml = child.data[0];
                     } else {
-                        ml = byt_to_in(child.data.clone()).try_into().unwrap_or(0);
+                        ml = byt_to_in(&child.data.clone()).try_into().unwrap_or(0);
                     };
                 } else {
                     ml = ip.split("/").collect::<Vec<&str>>()[1]
@@ -113,7 +136,7 @@ impl RpkiObject {
     pub fn get_mft_number(&self) -> Option<u64> {
         let data = self.content.get_raw_by_label("manifestNumber")?;
 
-        let number = byt_to_in(data);
+        let number = byt_to_in(&data);
         return Some(number);
     }
 
@@ -173,22 +196,6 @@ impl RpkiObject {
     }
 }
 
-pub fn parse_rpki_object(data: &Vec<u8>, typ: &ObjectType) -> Option<RpkiObject> {
-    let r = crate::asn1_parser::parse_asn1_object_slim(data);
-    if r.is_err() {
-        println!("Error during parsing {:?}", r);
-        return None;
-    }
-
-    let root = r.unwrap();
-
-    let tree = Tree::generate_tree(root, typ.to_string());
-
-    Some(RpkiObject {
-        content: tree,
-        typ: typ.to_string(),
-    })
-}
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, std::cmp::Eq, Hash, Copy)]
 pub enum ObjectType {
@@ -318,7 +325,6 @@ impl TAL {
         let http_regex = Regex::new(r"^https?://[^\s]+")?;
         let rsync_regex = Regex::new(r"^rsync://[^\s]+")?;
 
-        // Initialize variables for the URIs and certificate
         let mut http_uri = String::new();
         let mut rsync_uri = String::new();
         let mut certificate_base64 = String::new();
@@ -334,10 +340,8 @@ impl TAL {
             }
         }
 
-        // Decode the certificate
         let certificate = BASE64_STANDARD.decode(certificate_base64)?;
 
-        // Return the parsed TAL struct
         Ok(TAL {
             http_uri,
             rsync_uri,
@@ -496,7 +500,6 @@ impl Entry {
         let prefix = parts[1].split("/").nth(1).unwrap().parse::<u8>().unwrap();
 
         let ml = parts[2].parse::<u8>().unwrap_or(prefix);
-        // let new_raw = format!("{},{},{}", parts[0], parts[1], parts[2]);
 
         let family = if ip.contains(":") {
             IPType::V6
@@ -527,8 +530,6 @@ impl Entry {
         let asn = asn.unwrap();
         let ip = roa.prefix.clone();
         let prefix = roa.prefix.split('/').nth(1).unwrap().parse::<u8>().unwrap();
-
-        // let new_raw = format!("{},{},{}", roa.asn, roa.prefix, roa.max_length);
 
         let family = if ip.contains(":") {
             IPType::V6
@@ -575,6 +576,7 @@ pub struct DiffEntry {
 impl PartialEq for DiffEntry {
     fn eq(&self, other: &Self) -> bool {
         let entries = self.entry == other.entry;
+
         // Check if missing from is identical
         let missing: bool = self
             .missing_from
@@ -684,8 +686,6 @@ impl VRPS {
                 .collect()
         });
 
-        // store_roa_map(&roa_ips, base_uri);
-
         let mut vrps = HashSet::new();
         for roa in &roa_ips {
             if roa.is_none() {
@@ -711,8 +711,9 @@ impl VRPS {
             }
         }
 
-        let vrps = VRPS::from_entries(vrps, "crawler");
+        let vrps = VRPS::from_entries(vrps, "");
         let s = serde_json::to_string(&vrps).unwrap();
+
         let path = format!("{}/vrps.dump", base_uri);
         fs::write(path, s).unwrap();
         return vrps;
@@ -744,12 +745,10 @@ impl VRPS {
         let mut not_in: Vec<DiffEntry> = vec![];
         let mut all_set: HashSet<&Entry> = HashSet::new();
 
-        // Collect entries from self.content into all_set
         for entry in &self.content {
             all_set.insert(entry);
         }
 
-        // Collect entries from others into all_set
         for other in &others {
             for entry in &other.content {
                 all_set.insert(entry);
@@ -795,33 +794,4 @@ impl VRPS {
         }
         return false;
     }
-
-    // pub fn load_for_rps(rp_names: &Vec<String>) -> Vec<VRPS> {
-    //     let configs = config_parser::parse_configs();
-    //     let mut all_vrps = vec![];
-
-    //     // let mut parsed_logs = vec![];
-    //     for conf in configs {
-    //         if !rp_names.contains(&conf.0) {
-    //             continue;
-    //         }
-
-    //         let file = conf.1.vrps_file.1;
-    //         let content = std::fs::read_to_string(&file);
-    //         if content.is_err() {
-    //             continue;
-    //         }
-
-    //         let content = content.unwrap();
-    //         let vrp;
-    //         if conf.0 == "octorpki" {
-    //             vrp = VRPS::from_json(&content, &conf.0);
-    //         } else {
-    //             vrp = VRPS::from_csv(&content, &conf.0);
-    //         }
-
-    //         all_vrps.push(vrp);
-    //     }
-    //     all_vrps
-    // }
 }

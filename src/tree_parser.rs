@@ -3,26 +3,30 @@
  */
 use std::{
     collections::{HashMap, HashSet},
-    fmt,
+    fmt, str::from_utf8,
 };
 
 use crate::{
-    asn1_parser::encode_asn1_length,
-    labeling::{label_tree, LabelObject},
-    mutator::{self, Mutation},
+    asn1_parser::encode_asn1_length, labeling::{label_tree, LabelObject}, mutator::{self, Mutation}, rpki_utils::{self, byt_to_in}, tree_paths::{CertificatePaths, MFTPaths, ROAPaths}
 };
 use rand::prelude::SliceRandom;
 use rand::Rng;
 
 use crate::asn1_parser::Element;
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Copy)]
 pub enum Types {
     Sequence,
     Set,
     OctetString,
     Implicit,
     TLV,
+    NULL,
+    BitString,
+    ObjectIdentifier,
+    Cont0,
+    Integer,
+    IA5String,
 }
 
 impl Types {
@@ -33,6 +37,22 @@ impl Types {
             Types::OctetString => int_to_hex(4),
             Types::Implicit => int_to_hex(0),
             Types::TLV => int_to_hex(0),
+            Types::NULL => int_to_hex(5),
+            Types::BitString => int_to_hex(3),
+            Types::ObjectIdentifier => int_to_hex(6),
+            Types::Cont0 => int_to_hex(80),
+            Types::Integer => int_to_hex(2),
+            Types::IA5String => int_to_hex(22),
+        }
+    }
+
+    pub fn from_type_id(id: u8) -> Types {
+        match id {
+            0x30 | 0x50 => Types::Sequence,
+            0x31 | 0x51 => Types::Set,
+            0x4 | 0x24 => Types::OctetString,
+            0xA0 | 0xA1 | 0xA2 | 0xA3 | 0xA4 | 0xA5 | 0xA6 => Types::Implicit,
+            _ => Types::TLV,
         }
     }
 }
@@ -44,6 +64,26 @@ pub fn get_type_id(typ: Types) -> u8 {
         Types::OctetString => int_to_hex(4),
         Types::Implicit => int_to_hex(0),
         Types::TLV => int_to_hex(0),
+        Types::NULL => int_to_hex(5),
+        Types::BitString => int_to_hex(3),
+        Types::ObjectIdentifier => int_to_hex(6),
+        Types::Cont0 => int_to_hex(80),
+        Types::Integer => int_to_hex(2),
+        Types::IA5String => int_to_hex(22),
+    }
+}
+
+pub fn id2type(id: u8) -> Types {
+    match id {
+        30 => Types::Sequence,
+        31 => Types::Set,
+        4 => Types::OctetString,
+        0 => Types::Implicit,
+        3 => Types::BitString,
+        5 => Types::NULL,
+        6 => Types::ObjectIdentifier,
+        80 => Types::Cont0,
+        _ => panic!("Error when converting id to type"),
     }
 }
 
@@ -56,14 +96,14 @@ pub struct SpecialTag {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct Token {
     pub tag: Types,
+    pub tag_u: u8,
     pub length: usize,
     pub data: Vec<u8>,
     pub parent: usize,
     pub children: Vec<usize>,
     pub id: usize,
-    pub imp_tag: Option<u32>,
-    pub tainted: bool,
     pub visual_tag: Vec<u8>,
+    pub tainted: bool,
     pub visual_length: usize,
     pub info: String,
     pub manipulated: bool,
@@ -83,13 +123,13 @@ impl Token {
             parent: parent,
             children: Vec::new(),
             id: id,
-            imp_tag: None,
             tainted: false,
-            visual_tag: vec![get_type_id(tag)],
+            tag_u: get_type_id(tag),
             visual_length: length,
             info: String::new(),
             manipulated: false,
             manipulated_length: false,
+            visual_tag: vec![get_type_id(tag)],
         }
     }
 
@@ -104,6 +144,273 @@ impl Token {
         self.visual_length = length;
         self.manipulated_length = true;
         self.manipulated = true;
+    }
+
+    pub fn to_string_val(&self) -> ((u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, Vec<u8>)){
+        let tag_display = format!("{} [tag {}] ", &self.info, self.tag_u);
+        let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
+
+        let len_display = format!("({} byte)", self.length);
+        let len_val = (self.length, len_display, encode_asn1_length(self.length));
+
+        let con_display = format!("{}", hex::encode(&self.data));
+        let con_val = (hex::encode(&self.data), con_display, self.data.clone());
+        return (tag_val, len_val, con_val);
+
+    }
+
+
+
+    pub fn pretty_bitstring(&self) -> String{
+        if self.info.contains("ipAddr"){
+            if self.info.contains("6"){
+                return format!("{} (IP {})", hex::encode(&self.data), rpki_utils::parse_ip(&self.data[1..].to_vec(), 2, self.data[0].into()));
+            }
+            else{
+                return format!("{} (IP {})", hex::encode(&self.data), rpki_utils::parse_ip(&self.data[1..].to_vec(), 1, self.data[0].into()));
+            }
+        }
+
+        if self.info.contains("signature"){
+            return format!("{} (Signature)", hex::encode(&self.data));
+        }
+
+        vec_to_bin(&self.data)
+    }
+
+    pub fn to_string_pretty(&self) -> ((u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, Vec<u8>)){ 
+        match self.tag_u{
+            0x30 | 0x50 => { // Sequence
+                let dv = if self.tag_u == self.visual_tag[0] {
+                    "SEQUENCE".to_string()
+                } else {
+                    format!("[tag {} (original SEQUENCE)]", self.visual_tag[0])
+                };
+
+                let tag_display = format!("{}  {} ", &self.info, dv);
+                let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
+
+                let len_display = format!("({} nodes)", self.children.len());
+                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+
+                let con_display = format!("");
+                let con_val = ("".to_string(), con_display, vec![]);
+                return (tag_val, len_val, con_val);
+            }
+            0x31 | 0x51 => { // Set
+                let dv = if self.tag_u == self.visual_tag[0] {
+                    "SET".to_string()
+                } else {
+                    format!("[tag {} (original SET)]", self.visual_tag[0])
+                };
+                
+                let tag_display = format!("{}  {} ", &self.info, dv);
+                let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
+
+                let len_display = format!("({} nodes)", self.children.len());
+                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+
+                let con_display = format!("");
+                let con_val = ("".to_string(), con_display, vec![]);
+                return (tag_val, len_val, con_val);
+            }
+            0x04 | 0x24 => { // Octetstring
+                let dv = if self.tag_u == self.visual_tag[0] {
+                    "OCTETSTRING".to_string()
+                } else {
+                    format!("[tag {} (original OCTETSTRING)]", self.visual_tag[0])
+                };
+                
+                let tag_display = format!("{}  {} ", &self.info, dv);
+                let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
+
+                let len_display = format!("({} byte)", self.length);
+                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+
+                let con_display = format!("{}", hex::encode(&self.data));
+
+                // If it has children -> Content will be included over children
+                let val = match self.children.len() > 0{
+                    true => vec![],
+                    false => self.data.clone()
+                };
+
+                let con_val = (hex::encode(&val), con_display, val);
+                return (tag_val, len_val, con_val);
+            }
+            0x06 | 0x26 => { // Oid
+                let dv = if self.tag_u == self.visual_tag[0] {
+                    "OBJECT IDENTIFIER".to_string()
+                } else {
+                    format!("[tag {} (original OBJECT IDENTIFIER)]", self.visual_tag[0])
+                };
+                
+                let tag_display = format!("{}  {} ", &self.info, dv);
+                let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
+
+                let len_display = format!("");
+                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+
+                let con_display = format!("{}", decode_oid_to_string(&self.data));
+                let con_val = (con_display.clone(), con_display, self.data.clone());
+                return (tag_val, len_val, con_val);
+
+            }
+            0x02 | 0x22 => { // Integer
+                let dv = if self.tag_u == self.visual_tag[0] {
+                    "INTEGER".to_string()
+                } else {
+                    format!("[tag {} (original INTEGER)]", self.visual_tag[0])
+                };
+                let tag_display = format!("{}  {} ", &self.info, dv);
+
+                let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
+
+                let len_display = format!("");
+                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+
+                let con_display = format!("{}", byt_to_in(&self.data));
+                let con_val = (con_display.clone(), con_display, self.data.clone());
+                return (tag_val, len_val, con_val);
+
+            }
+            0xA0..=0xA6 => { // Implicit
+                let dv = if self.tag_u == self.visual_tag[0] {
+                    "[Implicit]".to_string()
+                } else {
+                    format!("[tag {} (original Implicit)]", self.visual_tag[0])
+                };
+                let tag_display = format!("{}  {} ", &self.info, dv);
+
+                let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
+
+                let len_display = format!("({} nodes)", self.children.len());
+                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+
+                let con_display = format!("");
+                let con_val = ("".to_string(), con_display, vec![]);
+                return (tag_val, len_val, con_val);
+            }
+            0x0E | 0x2E => { // TIME
+                
+                let dv = if self.tag_u == self.visual_tag[0] {
+                    "TIME".to_string()
+                } else {
+                    format!("[tag {} (original TIME)]", self.visual_tag[0])
+                };
+                let tag_display = format!("{}  {} ", &self.info, dv);
+                let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
+
+                let len_display = "".to_string();
+                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+
+
+                let data_dec = from_utf8(&self.data).unwrap_or_default();
+                let parsed = chrono::DateTime::parse_from_rfc3339(data_dec);
+                if parsed.is_err(){
+                    return self.to_string_val();
+                }
+
+                let parsed = parsed.unwrap();
+                let con_display = parsed.format("%Y-%m-%d %H:%M:%S").to_string();
+
+                let con_val = (con_display.clone(), con_display, self.data.clone());
+
+                return (tag_val, len_val, con_val);
+            }
+            0x17 | 0x37 => { // UTC Time
+                let dv = if self.tag_u == self.visual_tag[0] {
+                    "UTCTime".to_string()
+                } else {
+                    format!("[tag {} (original UTCTime)]", self.visual_tag[0])
+                };
+                let tag_display = format!("{}  {} ", &self.info, dv);
+                let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
+
+                let len_display = "".to_string();
+                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+
+
+                let data_dec = from_utf8(&self.data).unwrap_or_default();
+                let parsed = chrono::DateTime::parse_from_str(data_dec, "%Y-%m-%d %H:%M:%S");
+                if parsed.is_err(){
+                    return self.to_string_val();
+                }
+
+                let parsed = parsed.unwrap();
+                let con_display = parsed.format("%Y-%m-%d %H:%M:%S").to_string();
+
+                let con_val = (con_display.clone(), con_display, self.data.clone());
+
+                return (tag_val, len_val, con_val);
+                }
+            0x18 | 0x38 => { // GeneralizedTime
+                let dv = if self.tag_u == self.visual_tag[0] {
+                    "GeneralizedTime".to_string()
+                } else {
+                    format!("[tag {} (original GeneralizedTime)]", self.visual_tag[0])
+                };
+                let tag_display = format!("{}  {} ", &self.info, dv);
+                let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
+
+                let len_display = "".to_string();
+                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+
+
+                let data_dec = from_utf8(&self.data).unwrap_or_default();
+                let parsed = chrono::DateTime::parse_from_str(&data_dec, "%Y-%m-%d %H:%M:%S");
+                if parsed.is_err(){
+                    return self.to_string_val();
+                }
+
+                let parsed = parsed.unwrap();
+                let con_display = parsed.format("%Y-%m-%d %H:%M:%S").to_string();
+
+                let con_val = (con_display.clone(), con_display, self.data.clone());
+
+                return (tag_val, len_val, con_val);
+            }
+            0x07 | 0x27 | 0x0C | 0x2C | 0x12..=0x16 | 0x32..=0x36 | 0x19 ..=0x1E | 0x39..=0x3E => { // String
+                let dv = if self.tag_u == self.visual_tag[0] {
+                    "String".to_string()
+                } else {
+                    format!("[tag {} (original String)]", self.visual_tag[0])
+                };
+                let tag_display = format!("{}  {} ", &self.info, dv);
+
+                let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
+
+                let len_display = self.data.len().to_string();
+                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+                let tmp = hex::encode(&self.data);
+                let data_dec = from_utf8(&self.data).unwrap_or(&tmp);
+
+                let con_val = (data_dec.to_string(), data_dec.to_string(), self.data.clone());
+                return (tag_val, len_val, con_val);
+            } 
+            0x03 | 0x23 => { // BIT STRING
+                let dv = if self.tag_u == self.visual_tag[0] {
+                    "Bit String".to_string()
+                } else {
+                    format!("[tag {} (original Bit String)]", self.visual_tag[0])
+                };
+                let tag_display = format!("{}  {} ", &self.info, dv);
+
+                let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
+                let len_display = format!("({} bits)", (self.data.len() - 1) * 8 - self.data[0] as usize);
+                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+
+                let encoded = self.pretty_bitstring();
+                let bs = vec_to_bin(&self.data);
+                let con_val = (bs.to_string(), encoded.to_string(), self.data.clone());
+                return (tag_val, len_val, con_val);
+            }   
+            _ => {
+                return self.to_string_val();
+            }
+        }
+
+
     }
 }
 
@@ -141,6 +448,27 @@ impl Tree {
         }
     }
 
+    pub fn add_node(&mut self, tag: u8, content: Vec<u8>, parent: usize, label: Option<String>) -> usize {
+        let new_id = self.cur_index + 1;
+        let mut token = Token::new(Types::from_type_id(tag), content.len(), content, parent, new_id);
+        
+        token.visual_tag = vec![tag];
+        token.tainted = true;
+
+        if label.is_some(){
+            self.labels.insert(label.unwrap(), new_id);
+        }
+        self.tokens.insert(new_id, token);
+        self.tokens.get_mut(&parent).unwrap().children.push(new_id);
+
+        self.taint_parents(new_id);
+
+        
+        self.cur_index += 1;
+        self.fix_sizes(true);
+        new_id
+    }
+
     pub fn remove_taint(&mut self) {
         for t in self.tokens.values_mut() {
             t.tainted = false;
@@ -159,6 +487,10 @@ impl Tree {
 
     pub fn get_node(&self, id: usize) -> Option<&Token> {
         self.tokens.get(&id)
+    }
+
+    pub fn get_node_mut(&mut self, id: usize) -> Option<&mut Token> {
+        self.tokens.get_mut(&id)
     }
 
     pub fn random_token_id(&self) -> usize {
@@ -381,7 +713,7 @@ impl Tree {
             let prev_parent = self.tokens[&new_id].parent;
 
             tok.tag = Types::TLV;
-            tok.imp_tag = Some(0);
+            tok.tag_u = 0;
             tok.id = new_id;
             tok.children = prev_children;
             tok.parent = prev_parent;
@@ -425,6 +757,17 @@ impl Tree {
             ancestors.push(self.tokens.get(&cur_id).unwrap());
         }
         ancestors
+    }
+
+    // keeps id in tree but removes all children
+    pub fn deep_delete_children(&mut self, id: usize) {
+        let ids = self.get_offspring_ids(id);
+        for i in ids {
+            self.remove_child_id_in_parent(i);
+
+            self.labels.remove(&self.tokens[&i].info);
+            self.tokens.remove(&i).unwrap();
+        }
     }
 
     pub fn deep_delete(&mut self, id: usize) {
@@ -510,13 +853,63 @@ impl Tree {
         Tree::generate_tree_index(obj, typ, 0)
     }
 
+    pub fn get_all_oids(&self) -> HashSet<String>{
+        let mut oids = HashSet::new();
+        for t in self.tokens.values(){
+            if t.tag_u == 6{
+                oids.insert(decode_oid_to_string(&t.data));
+            }
+        }
+        oids
+    }
+
+    pub fn infer_type(tree: &Tree) -> String{
+        let all_oids = tree.get_all_oids();
+
+        let mut  known_oids = HashMap::new();
+        known_oids.insert("1.2.840.113549.1.9.16.1.24", "roa");
+        known_oids.insert("1.2.840.113549.1.9.16.1.26", "mft");
+        known_oids.insert("1.2.840.113549.1.9.16.1.35", "gbr");
+        known_oids.insert("1.2.840.113549.1.9.16.1.49", "asa");
+
+
+
+        if all_oids.contains("1.2.840.113549.1.7.2"){ // SignedData
+            for oid in known_oids.keys(){
+                if all_oids.contains(*oid){
+                    return known_oids.get(oid).unwrap().to_string();
+                }
+            }
+
+            return "cms".to_string();
+        }
+
+        if all_oids.contains("2.5.29.20"){ // CRL Number Extension
+            return "crl".to_string();
+        }
+
+        if tree.get_root().children.len() == 3{
+            let children = tree.get_root().children.clone();
+            if tree.tokens.get(&children[0]).unwrap().children.len() > 3 && tree.tokens.get(&children[2]).unwrap().tag_u == 3 && tree.tokens.get(&children[2]).unwrap().data.len() > 255{
+                return "cer".to_string();
+            }
+        } 
+
+        return "".to_string();
+    }
+
     pub fn generate_tree_index(obj: Element, typ: String, start_index: usize) -> Tree {
         let mut tree = Tree::new(&typ);
         tree.cur_index = start_index;
         tree.root_id = start_index;
         tree.create_tree(obj, None);
         tree.fix_sizes(false);
-        if typ != ""{
+        
+        if typ == "".to_string(){
+            tree.obj_type = Tree::infer_type(&tree);
+        }
+        
+        if tree.obj_type != ""{
             tree.label_tree();
         }
         tree
@@ -533,6 +926,8 @@ impl Tree {
                 let new_id = self.cur_index;
 
                 let mut token = Token::new(Types::Sequence, seq.total_len, vec![], parent, new_id);
+                token.tag_u = seq.tag;
+
                 self.cur_index += 1;
 
                 for item in seq.value {
@@ -546,7 +941,7 @@ impl Tree {
                 let new_id = self.cur_index;
 
                 let mut token = Token::new(Types::TLV, t.total_len, t.value, parent, new_id);
-                token.imp_tag = Some(t.tag.into());
+                token.tag_u = t.tag;
                 token.visual_tag = vec![t.tag];
 
                 self.cur_index += 1;
@@ -559,6 +954,7 @@ impl Tree {
                 let new_id = self.cur_index;
 
                 let mut token = Token::new(Types::Set, set.total_len, vec![], parent, new_id);
+                token.tag_u = set.tag;
 
                 self.cur_index += 1;
 
@@ -574,6 +970,7 @@ impl Tree {
                 let new_id = self.cur_index;
 
                 let mut token = Token::new(Types::OctetString, o.total_len, vec![], parent, new_id);
+                token.tag_u = o.tag;
 
                 self.cur_index += 1;
 
@@ -592,7 +989,7 @@ impl Tree {
                 let new_id = self.cur_index;
 
                 let mut token = Token::new(Types::Implicit, im.total_len, vec![], parent, new_id);
-                token.imp_tag = Some(im.tag.into());
+                token.tag_u = im.tag;
                 token.visual_tag = vec![im.tag.into()];
 
                 self.cur_index += 1;
@@ -624,7 +1021,7 @@ impl Tree {
     }
 
     pub fn label_tree(&mut self) {
-        let label_obj = label_tree(&self.obj_type);
+        let label_obj = label_tree(&self.obj_type, &self);
 
         if label_obj.is_none() {
             // Unknown Object Type -> Cant label
@@ -648,7 +1045,7 @@ impl Tree {
             lobj = label_obj;
         }
 
-        if let Some(label) = lobj.label {
+        if let Some(label) = &lobj.label {
             let label_s = label.to_string();
             self.tokens.get_mut(&id).unwrap().info = label_s.clone();
             self.labels.insert(label_s, id);
@@ -759,6 +1156,54 @@ impl Tree {
                 }
                 return data;
             }
+            Types::BitString => {
+                if token.children.is_empty() {
+                    data.extend(token.data.clone());
+                    return data;
+                } else {
+                    data.extend(self.encode_node(self.get_node(token.children[0]).unwrap()));
+                }
+                return data;
+            }
+            Types::ObjectIdentifier => {
+                if token.children.is_empty() {
+                    data.extend(token.data.clone());
+                    return data;
+                } else {
+                    data.extend(self.encode_node(self.get_node(token.children[0]).unwrap()));
+                }
+                return data;
+            }
+            Types::NULL => {
+                data.extend(token.data.clone());
+                return data;
+            }
+            Types::Cont0 => {
+                if token.children.is_empty() {
+                    data.extend(token.data.clone());
+                    return data;
+                } else {
+                    data.extend(self.encode_node(self.get_node(token.children[0]).unwrap()));
+                }
+                return data;
+            }
+            Types::Integer => {
+                data.extend(token.data.clone());
+                for id in &token.children {
+                    let item = self.get_node(*id).unwrap();
+                    data.extend(self.encode_node(item));
+                }
+                return data;
+            },
+            Types::IA5String => {
+                if token.children.is_empty() {
+                    data.extend(token.data.clone());
+                    return data;
+                } else {
+                    data.extend(self.encode_node(self.get_node(token.children[0]).unwrap()));
+                }
+                return data;
+            },
         }
     }
 
@@ -832,7 +1277,7 @@ impl Tree {
                     "{} [{}] Typ{} {:?}\n",
                     space,
                     descr,
-                    node.imp_tag.unwrap(),
+                    node.tag_u,
                     node.data
                 );
                 return (1, s);
@@ -881,6 +1326,120 @@ impl Tree {
                     return (c, s);
                 }
             }
+            Types::BitString => {
+                let mut c = 0;
+                let mut s = String::new();
+                let descr;
+                if node.info.is_empty() {
+                    descr = node_id.to_string();
+                } else {
+                    descr = node.info.clone();
+                }
+                if node.children.is_empty() {
+                    s += &format!("{} [{}] Typ3 {:?}\n", space, descr, node.data);
+                    return (1, s);
+                } else {
+                    let res = self.to_string(node.children[0], cur_depth + 1);
+                    c += res.0;
+                    s += &res.1;
+                    return (c, s);
+                }
+            }
+            Types::ObjectIdentifier => {
+                let mut c = 0;
+                let mut s = String::new();
+                let descr;
+                if node.info.is_empty() {
+                    descr = node_id.to_string();
+                } else {
+                    descr = node.info.clone();
+                }
+                if node.children.is_empty() {
+                    s += &format!("{} [{}] Typ6 {:?}\n", space, descr, node.data);
+                    return (1, s);
+                } else {
+                    let res = self.to_string(node.children[0], cur_depth + 1);
+                    c += res.0;
+                    s += &res.1;
+                    return (c, s);
+                }
+            }
+            Types::NULL => {
+                let mut c = 0;
+                let mut s = String::new();
+                let descr;
+                if node.info.is_empty() {
+                    descr = node_id.to_string();
+                } else {
+                    descr = node.info.clone();
+                }
+                if node.children.is_empty() {
+                    s += &format!("{} [{}] Typ5 {:?}\n", space, descr, node.data);
+                    return (1, s);
+                } else {
+                    let res = self.to_string(node.children[0], cur_depth + 1);
+                    c += res.0;
+                    s += &res.1;
+                    return (c, s);
+                }
+            }
+            Types::Cont0 => {
+                let mut c = 0;
+                let mut s = String::new();
+                let descr;
+                if node.info.is_empty() {
+                    descr = node_id.to_string();
+                } else {
+                    descr = node.info.clone();
+                }
+                if node.children.is_empty() {
+                    s += &format!("{} [{}] Typ128 {:?}\n", space, descr, node.data);
+                    return (1, s);
+                } else {
+                    let res = self.to_string(node.children[0], cur_depth + 1);
+                    c += res.0;
+                    s += &res.1;
+                    return (c, s);
+                }
+            }
+            Types::Integer => {
+                let mut c = 0;
+                let mut s = String::new();
+                let descr;
+                if node.info.is_empty() {
+                    descr = node_id.to_string();
+                } else {
+                    descr = node.info.clone();
+                }
+                if node.children.is_empty() {
+                    s += &format!("{} [{}] Typ2 {:?}\n", space, descr, node.data);
+                    return (1, s);
+                } else {
+                    let res = self.to_string(node.children[0], cur_depth + 1);
+                    c += res.0;
+                    s += &res.1;
+                    return (c, s);
+                }
+            },
+            Types::IA5String => {
+                let mut c = 0;
+                let mut s = String::new();
+                let descr;
+                if node.info.is_empty() {
+                    descr = node_id.to_string();
+                } else {
+                    descr = node.info.clone();
+                }
+                if node.children.is_empty() {
+                    s += &format!("{} [{}] Typ22 {:?}\n", space, descr, node.data);
+                    return (1, s);
+                } else {
+                    let res = self.to_string(node.children[0], cur_depth + 1);
+                    c += res.0;
+                    s += &res.1;
+                    return (c, s);
+                }
+            },
         }
     }
 
@@ -892,11 +1451,75 @@ impl Tree {
         }
     }
 
+    pub fn get_node_by_label_mut(&mut self, label: &str) -> Option<&mut Token> {
+        let id = self.labels.get(label);
+        match id {
+            Some(id) => Some(self.get_node_mut(*id).unwrap()),
+            None => None,
+        }
+    }
+
+    fn get_id_by_path_rec(&self, node: &Token, path: &[&str]) -> Option<usize> {
+        if path.is_empty() {
+            return Some(node.id);
+        }
+        for id in &node.children {
+            let child_node = self.get_node(*id).unwrap();
+            if child_node.info == path[0] {
+                return self.get_id_by_path_rec(child_node, &path[1..]);
+            }
+        }
+        None
+    }
+
+    pub fn get_id_by_path(&self, path: &[&str]) -> Option<usize> {
+        if path.is_empty() {
+            return None;
+        }
+        if path.len() == 1 {
+            if path[0] == "contentInfo" {
+                return Some(0);
+            } else {
+                return None;
+            }
+        }
+        let root_node = self.get_root();
+        for id in &root_node.children {
+            let child_node = self.get_node(*id).unwrap();
+            if child_node.info == path[1] {
+                return self.get_id_by_path_rec(child_node, &path[2..]);
+            }
+        }
+        None
+    }
+
+    pub fn set_data(&mut self, path: &[&str], data: &Vec<u8>, tag_type: Types) {
+        let id = self.get_id_by_path(path).unwrap();
+        let node = self.get_node_mut(id).unwrap();
+        node.data = data.to_vec();
+        node.length = data.len();
+        node.visual_length = data.len();
+        node.tag = tag_type.clone();
+        node.tainted = true;
+        node.manipulated = true;
+        node.visual_tag = [get_type_id(tag_type)].to_vec();
+        self.taint_parents(id);
+    }
+
     pub fn get_data_by_label(&self, label: &str) -> Option<Vec<u8>> {
         let id = self.labels.get(label);
         match id {
             Some(id) => Some(self.encode_node(self.get_node(*id).unwrap())),
             None => None,
+        }
+    }
+
+    pub fn get_data_by_id(&self, id: usize) -> Option<Vec<u8>> {
+        let t = self.get_node(id);
+        if t.is_none() {
+            return None;
+        } else {
+            return Some(self.encode_node(t.unwrap()));
         }
     }
 
@@ -1001,6 +1624,66 @@ impl Tree {
         }
         return false;
     }
+
+    fn print_token(&self, t: &Token, recursion: usize) {
+        let children = &t.children;
+        let output: String = "\t".repeat(recursion);
+        println!("{} {} {} {} {} {} {} {:?}", output, t.id, t.info, t.length, t.visual_length, t.tainted, t.manipulated, t.data);
+        for c in children {
+            if let Some(node) = self.get_node(*c) {
+                self.print_token(&node, recursion+1);
+            }
+        }
+    }
+    pub fn print_tree(&self) {
+        let root = self.get_root();
+        self.print_token(root, 0);
+    }
+
+    pub fn get_header_len(&self, n: &Token) -> usize {
+        let data_len = n.length;
+        let pid = n.parent;
+        let pn = self.get_node(pid).unwrap();
+        let pdata_len = pn.length;
+        return pdata_len - data_len;
+    }
+
+    pub fn fix_octetstrings(&mut self, typ: &str) {
+        match typ {
+            "roa" => {
+                let paths = ROAPaths::init();
+                for p in [paths.cert_paths.ski, paths.sig_inf_paths.msg_dgst, paths.sig_inf_paths.signature] {
+                    let id = self.get_id_by_path(&p).unwrap();
+                    let n = self.get_node(id).unwrap();
+                    let data = self.encode_node_content(n, true);
+                    self.deep_delete_children(id);
+                    self.set_data(&p, &data, Types::OctetString);
+                }
+            },
+            "cer" => {
+                let paths = CertificatePaths::init_cert();
+                for p in [paths.ski] {
+                    let id = self.get_id_by_path(&p).unwrap();
+                    let n = self.get_node(id).unwrap();
+                    let data = self.encode_node_content(n, true);
+                    self.deep_delete_children(id);
+                    self.set_data(&p, &data, Types::OctetString);
+                }
+            },
+            "crl" => {},
+            "mft" => {
+                let paths = MFTPaths::init();
+                for p in [paths.cert_paths.ski, paths.sig_inf_paths.msg_dgst, paths.sig_inf_paths.signature] {
+                    let id = self.get_id_by_path(&p).unwrap();
+                    let n = self.get_node(id).unwrap();
+                    let data = self.encode_node_content(n, true);
+                    self.deep_delete_children(id);
+                    self.set_data(&p, &data, Types::OctetString);
+                }
+            },
+            _ => {},
+        }
+    }
 }
 
 impl fmt::Debug for Tree {
@@ -1097,4 +1780,13 @@ pub fn decode_oid_to_string(encoded: &[u8]) -> String {
 fn int_to_hex(v: u8) -> u8 {
     let hex_integer: u8 = u8::from_str_radix(&v.to_string(), 16).unwrap();
     hex_integer
+}
+
+
+fn vec_to_bin(bitstring: &Vec<u8>) -> String {
+    let bitstring = &bitstring[1..];
+    bitstring.iter()
+        .map(|byte| format!("{:08b}", byte)) // Convert each byte to an 8-bit binary string
+        .collect::<Vec<String>>() // Collect into a vector of strings
+        .join("") // Join them together
 }

@@ -12,7 +12,6 @@ base64 = "0.21.4"
 rand = "0.8"
 serde = { version = "1.0.*", default-features = true, features=["serde_derive"] }
 serde_json="1.0"
-src = "0.0.6"
 minidom = "0.16.0"
 openssl = "0.10.64"
 xml-rs = "0.8"
@@ -21,3 +20,4 @@ uuid = {version = "0.8.2", features = ["serde", "v4"]}
 regex = "1"
 quick-xml = "0.37.2"
 rayon = "1.7"
+chrono = "0.4.40"

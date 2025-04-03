@@ -48,21 +48,21 @@ impl LabelInfo {
 /*
 The following functions generate dynamic labels for fields that are not statically defined.
 */
-fn label_fn_encoded_content<'a>(id: usize, tree: &Tree) -> LabelObject<'a> {
+fn label_fn_encoded_content<'a>(id: usize, tree: &Tree) -> LabelObject {
     let children = label_enc_content_inner(&tree.obj_type);
     let c = &tree.get_node(id).unwrap().children;
 
     // No children or not a nested octetstring -> Just return normal
     if c.len() == 0 || tree.get_node(c[0]).unwrap().tag != Types::OctetString {
-        return LabelObject::new(Some("eContentOuterOctet"), children);
+        return LabelObject::new(Some("eContentOuterOctet".to_string()), children);
     }
 
-    let inner_oc = LabelObject::new(Some("eContentInnerOctet"), children);
-    let outer = LabelObject::new(Some("eContentOuterOctet"), vec![inner_oc]);
+    let inner_oc = LabelObject::new(Some("eContentInnerOctet".to_string()), children);
+    let outer = LabelObject::new(Some("eContentOuterOctet".to_string()), vec![inner_oc]);
     outer
 }
 
-fn label_fn_signed_attrs<'a>(id: usize, tree: &Tree) -> LabelObject<'a> {
+fn label_fn_signed_attrs<'a>(id: usize, tree: &Tree) -> LabelObject {
     let mut labels = Vec::new();
 
     let signed_attrs_map = label_signed_attributes_rpki();
@@ -81,10 +81,10 @@ fn label_fn_signed_attrs<'a>(id: usize, tree: &Tree) -> LabelObject<'a> {
             labels.push(LabelObject::new(None, vec![]));
         }
     }
-    LabelObject::new(Some("signerSignedAttributesField"), labels)
+    LabelObject::new(Some("signerSignedAttributesField".to_string()), labels)
 }
 
-fn label_fn_extensions<'a>(id: usize, tree: &Tree) -> LabelObject<'a> {
+fn label_fn_extensions<'a>(id: usize, tree: &Tree) -> LabelObject {
     let mut labels = Vec::new();
 
     let ext_map = label_extensions_rpki();
@@ -103,10 +103,10 @@ fn label_fn_extensions<'a>(id: usize, tree: &Tree) -> LabelObject<'a> {
             labels.push(LabelObject::new(None, vec![]));
         }
     }
-    LabelObject::new(Some("extensions"), labels)
+    LabelObject::new(Some("extensions".to_string()), labels)
 }
 
-fn label_fn_subject_info<'a>(id: usize, tree: &Tree) -> LabelObject<'a> {
+fn label_fn_subject_info<'a>(id: usize, tree: &Tree) -> LabelObject {
     let mut labels = Vec::new();
 
     let ext_map = label_extension_subject_info();
@@ -125,19 +125,113 @@ fn label_fn_subject_info<'a>(id: usize, tree: &Tree) -> LabelObject<'a> {
             labels.push(LabelObject::new(None, vec![]));
         }
     }
-    LabelObject::new(Some("subjectInfoAccessSeq"), labels)
+    LabelObject::new(Some("subjectInfoAccessSeq".to_string()), labels)
+}
+
+
+fn label_fn_roa_ip_seq<'a>(id: usize, tree: &Tree) -> LabelObject {
+    let mut labels = Vec::new();
+
+    if tree.get_node(id).unwrap().children.len() < 2 {
+        return LabelObject::new(Some("roaContent".to_string()), vec![]);
+    }
+
+    let as_id = LabelObject::new(Some("asID".to_string()), vec![]);
+
+    for child_id in &tree.get_node(tree.get_node(id).unwrap().children[1]).unwrap().children {
+        let child = tree.get_node(*child_id).unwrap();
+
+        let ip_afi = child.children[0];
+
+        let ip_addresses = child.children[1];
+        let suffix;
+        if tree.get_node(ip_afi).unwrap().data == vec![0, 1]{
+            suffix = "v4";
+        }
+        else{
+            suffix = "v6";
+        }
+
+        let ip_afi_l = LabelObject::new(Some(format!("ipAFI{}", suffix)), vec![]);
+
+        let mut ip_counter = 0;
+        let mut child_labels = vec![];
+
+        for ip_val in &tree.get_node(ip_addresses).unwrap().children{
+            let ip_node = tree.get_node(*ip_val).unwrap();
+            let ip = format!("ipAddrBlock{}_{}", suffix, ip_counter);
+
+            let mut ip_labels = vec![];
+            
+            let lab = format!("ipAddr{}_{}", suffix, ip_counter);
+            let label_ml = format!("ipMl{}_{}", suffix, ip_counter);
+
+
+            if ip_node.children.len() == 1{
+                ip_labels.push(LabelObject::new(Some(lab), vec![]));
+            }
+            else{
+                ip_labels.push(LabelObject::new(Some(lab), vec![]));
+
+                ip_labels.push(LabelObject::new(Some(label_ml), vec![]));
+            }
+
+            child_labels.push(LabelObject::new(Some(ip), ip_labels));
+            ip_counter += 1;
+        }
+        
+        let la = LabelObject::new(Some(format!("ipAddrBlocks{}", suffix)), child_labels);
+        let afi_and_ips = LabelObject::new(Some(format!("ipAddrBlocks{}Seq", suffix)), vec![ip_afi_l, la]);
+
+        labels.push(afi_and_ips);
+    }
+
+    LabelObject::new(Some("roaContent".to_string()), vec![as_id, LabelObject::new(Some("ipAddrBlocks".to_string()), labels)])
+}
+
+fn label_fn_mft<'a>(id: usize, tree: &Tree) -> LabelObject {
+    let manifest_number = LabelObject::new(Some("manifestNumber".to_string()), vec![]);
+
+    let this_update = LabelObject::new(Some("thisUpdate".to_string()), vec![]);
+
+    let next_update = LabelObject::new(Some("nextUpdate".to_string()), vec![]);
+
+    let hash_algo = LabelObject::new(Some("manifestHashAlgorithm".to_string()), vec![]);
+
+    let last = tree.get_node(id).unwrap().children.last();
+    if last.is_none(){
+        return LabelObject::new(Some("mftContent".to_string()), vec![manifest_number, this_update, next_update, hash_algo]);
+    }
+
+    let mut val_counter = 0;
+    let mut entries = vec![];
+    for child_id in &tree.get_node(*last.unwrap()).unwrap().children {
+        let child = tree.get_node(*child_id).unwrap();
+        if child.children.len() != 2 {
+            continue;
+        }
+        let name_label = LabelObject::new(Some(format!("mftHashName_{}", val_counter)), vec![]);
+        let hash_label = LabelObject::new(Some(format!("mftHashValue_{}", val_counter)), vec![]);
+        val_counter += 1;
+        let entry = LabelObject::new(Some(format!("mftEntry_{}", val_counter)), vec![name_label, hash_label]);
+        entries.push(entry);
+    }
+    let hashes = LabelObject::new(Some("manifestHashes".to_string()), entries);
+    let enc = LabelObject::new(Some("mftContent".to_string()), vec![manifest_number, this_update, next_update, hash_algo, hashes]);
+    enc
+    
 }
 
 #[derive(Clone, Debug)]
-pub struct LabelObject<'a> {
-    pub label: Option<&'a str>,
+pub struct LabelObject {
+    pub label: Option<String>,
     pub label_info: Option<LabelInfo>,
-    pub children: Vec<LabelObject<'a>>,
-    pub label_function: Option<fn(usize, &Tree) -> LabelObject<'a>>,
+    pub children: Vec<LabelObject>,
+    pub label_function: Option<fn(usize, &Tree) -> LabelObject>,
 }
 
-impl<'a> LabelObject<'a> {
-    pub fn new(label: Option<&'a str>, children: Vec<LabelObject<'a>>) -> LabelObject<'a> {
+impl<'a> LabelObject {
+    pub fn new(label: Option<String>, children: Vec<LabelObject>) -> LabelObject {
         LabelObject {
             label,
             label_info: None,
@@ -147,36 +241,36 @@ impl<'a> LabelObject<'a> {
     }
 }
 
-pub fn label_extension_subject_info() -> HashMap<&'static str, LabelObject<'static>> {
+pub fn label_extension_subject_info() -> HashMap<&'static str, LabelObject> {
     let ca_repo_ext = LabelObject::new(
-        Some("basicConstraintsExt"),
+        Some("basicConstraintsExt".to_string()),
         vec![
-            LabelObject::new(Some("caRepositoryExtID"), vec![]),
-            LabelObject::new(Some("caRepositoryURI"), vec![]),
+            LabelObject::new(Some("caRepositoryExtID".to_string()), vec![]),
+            LabelObject::new(Some("caRepositoryURI".to_string()), vec![]),
         ],
     );
 
     let manifest_uri = LabelObject::new(
-        Some("rpkiManifestExt"),
+        Some("rpkiManifestExt".to_string()),
         vec![
-            LabelObject::new(Some("rpkiManifestExtID"), vec![]),
-            LabelObject::new(Some("rpkiManifestURI"), vec![]),
+            LabelObject::new(Some("rpkiManifestExtID".to_string()), vec![]),
+            LabelObject::new(Some("rpkiManifestURI".to_string()), vec![]),
         ],
     );
 
     let notification_uri = LabelObject::new(
-        Some("rpkiNotifyExt"),
+        Some("rpkiNotifyExt".to_string()),
         vec![
-            LabelObject::new(Some("rpkiNotifyExtID"), vec![]),
-            LabelObject::new(Some("rpkiNotifyURI"), vec![]),
+            LabelObject::new(Some("rpkiNotifyExtID".to_string()), vec![]),
+            LabelObject::new(Some("rpkiNotifyURI".to_string()), vec![]),
         ],
     );
 
     let signed_object_uri = LabelObject::new(
-        Some("signedObjectExt"),
+        Some("signedObjectExt".to_string()),
         vec![
-            LabelObject::new(Some("signedObjectExtID"), vec![]),
-            LabelObject::new(Some("signedObjectURI"), vec![]),
+            LabelObject::new(Some("signedObjectExtID".to_string()), vec![]),
+            LabelObject::new(Some("signedObjectURI".to_string()), vec![]),
         ],
     );
 
@@ -189,74 +283,74 @@ pub fn label_extension_subject_info() -> HashMap<&'static str, LabelObject<'stat
     map
 }
 
-pub fn label_extensions_rpki() -> HashMap<&'static str, LabelObject<'static>> {
+pub fn label_extensions_rpki() -> HashMap<&'static str, LabelObject> {
     let basic_constaints = LabelObject::new(
-        Some("basicConstraintsExt"),
+        Some("basicConstraintsExt".to_string()),
         vec![
-            LabelObject::new(Some("basicConstraintsExtID"), vec![]),
-            LabelObject::new(Some("basicConstraintsCritc"), vec![]),
+            LabelObject::new(Some("basicConstraintsExtID".to_string()), vec![]),
+            LabelObject::new(Some("basicConstraintsCritc".to_string()), vec![]),
             LabelObject::new(
-                Some("basicConstraintsOctetString"),
+                Some("basicConstraintsOctetString".to_string()),
                 vec![LabelObject::new(
-                    Some("basicConstraintsSeq"),
-                    vec![LabelObject::new(Some("basicConstraintsCA"), vec![])],
+                    Some("basicConstraintsSeq".to_string()),
+                    vec![LabelObject::new(Some("basicConstraintsCA".to_string()), vec![])],
                 )],
             ),
         ],
     );
 
     let subject_key_identifier = LabelObject::new(
-        Some("subjectKeyIdentifierExt"),
+        Some("subjectKeyIdentifierExt".to_string()),
         vec![
-            LabelObject::new(Some("subjectKeyIdentifierExtID"), vec![]),
+            LabelObject::new(Some("subjectKeyIdentifierExtID".to_string()), vec![]),
             LabelObject::new(
-                Some("subjectKeyIdentifierOctetstring"),
-                vec![LabelObject::new(Some("subjectKeyIdentifier"), vec![])],
+                Some("subjectKeyIdentifierOctetstring".to_string()),
+                vec![LabelObject::new(Some("subjectKeyIdentifier".to_string()), vec![])],
             ),
         ],
     );
 
     let authority_key_identifier = LabelObject::new(
-        Some("authorityKeyIdentifierExt"),
+        Some("authorityKeyIdentifierExt".to_string()),
         vec![
-            LabelObject::new(Some("authorityKeyIdentifierExtID"), vec![]),
+            LabelObject::new(Some("authorityKeyIdentifierExtID".to_string()), vec![]),
             LabelObject::new(
-                Some("authorityKeyIdentifierOctetstring"),
+                Some("authorityKeyIdentifierOctetstring".to_string()),
                 vec![LabelObject::new(
-                    Some("authorityKeyIdentifierSeq"),
-                    vec![LabelObject::new(Some("authorityKeyIdentifier"), vec![])],
+                    Some("authorityKeyIdentifierSeq".to_string()),
+                    vec![LabelObject::new(Some("authorityKeyIdentifier".to_string()), vec![])],
                 )],
             ),
         ],
     );
 
     let key_usage = LabelObject::new(
-        Some("keyUsageExt"),
+        Some("keyUsageExt".to_string()),
         vec![
-            LabelObject::new(Some("keyUsageExtExtID"), vec![]),
-            LabelObject::new(Some("keyUsageCritc"), vec![]),
+            LabelObject::new(Some("keyUsageExtExtID".to_string()), vec![]),
+            LabelObject::new(Some("keyUsageCritc".to_string()), vec![]),
             LabelObject::new(
-                Some("keyUsageOctetString"),
-                vec![LabelObject::new(Some("keyUsageBitstring"), vec![])],
+                Some("keyUsageOctetString".to_string()),
+                vec![LabelObject::new(Some("keyUsageBitstring".to_string()), vec![])],
             ),
         ],
     );
 
     let crl_distribution_points = LabelObject::new(
-        Some("crlDistributionPointsExt"),
+        Some("crlDistributionPointsExt".to_string()),
         vec![
-            LabelObject::new(Some("crlDistributionPointsExtID"), vec![]),
+            LabelObject::new(Some("crlDistributionPointsExtID".to_string()), vec![]),
             LabelObject::new(
-                Some("crlDistributionPointsOctetString"),
+                Some("crlDistributionPointsOctetString".to_string()),
                 vec![LabelObject::new(
-                    Some("crlDistributionPointsSeq"),
+                    Some("crlDistributionPointsSeq".to_string()),
                     vec![LabelObject::new(
-                        Some("crlDistributionPointsSeq2"),
+                        Some("crlDistributionPointsSeq2".to_string()),
                         vec![LabelObject::new(
-                            Some("crlDistributionPointsSeq3"),
+                            Some("crlDistributionPointsSeq3".to_string()),
                             vec![LabelObject::new(
-                                Some("crlDistributionPointsSeq4"),
-                                vec![LabelObject::new(Some("crlDistributionPoint"), vec![])],
+                                Some("crlDistributionPointsSeq4".to_string()),
+                                vec![LabelObject::new(Some("crlDistributionPoint".to_string()), vec![])],
                             )],
                         )],
                     )],
@@ -266,18 +360,18 @@ pub fn label_extensions_rpki() -> HashMap<&'static str, LabelObject<'static>> {
     );
 
     let authority_info_access = LabelObject::new(
-        Some("authorityInfoAccessExt"),
+        Some("authorityInfoAccessExt".to_string()),
         vec![
-            LabelObject::new(Some("authorityInfoAccessExtID"), vec![]),
+            LabelObject::new(Some("authorityInfoAccessExtID".to_string()), vec![]),
             LabelObject::new(
-                Some("authorityInfoAccessOctetString"),
+                Some("authorityInfoAccessOctetString".to_string()),
                 vec![LabelObject::new(
-                    Some("authorityInfoAccessSeq"),
+                    Some("authorityInfoAccessSeq".to_string()),
                     vec![LabelObject::new(
-                        Some("authorityInfoAccessSeq2"),
+                        Some("authorityInfoAccessSeq2".to_string()),
                         vec![
-                            LabelObject::new(Some("caIssuersOID"), vec![]),
-                            LabelObject::new(Some("caIssuersURI"), vec![]),
+                            LabelObject::new(Some("caIssuersOID".to_string()), vec![]),
+                            LabelObject::new(Some("caIssuersURI".to_string()), vec![]),
                         ],
                     )],
                 )],
@@ -286,36 +380,36 @@ pub fn label_extensions_rpki() -> HashMap<&'static str, LabelObject<'static>> {
     );
 
     let subject_info_acc_seq = LabelObject {
-        label: Some("subjectInfoAccessSeq"),
+        label: Some("subjectInfoAccessSeq".to_string()),
         label_info: None,
         children: vec![],
         label_function: Some(label_fn_subject_info),
     };
 
     let subject_info_access = LabelObject::new(
-        Some("subjectInfoAccessExt"),
+        Some("subjectInfoAccessExt".to_string()),
         vec![
-            LabelObject::new(Some("subjectInfoAccessExtID"), vec![]),
-            LabelObject::new(Some("subjectInfoAccessOctetString"), vec![subject_info_acc_seq]),
+            LabelObject::new(Some("subjectInfoAccessExtID".to_string()), vec![]),
+            LabelObject::new(Some("subjectInfoAccessOctetString".to_string()), vec![subject_info_acc_seq]),
         ],
     );
 
     let certificate_policies = LabelObject::new(
-        Some("certificatePoliciesExt"),
+        Some("certificatePoliciesExt".to_string()),
         vec![
-            LabelObject::new(Some("certificatePoliciesExtID"), vec![]),
-            LabelObject::new(Some("certificatePoliciesCritc"), vec![]),
+            LabelObject::new(Some("certificatePoliciesExtID".to_string()), vec![]),
+            LabelObject::new(Some("certificatePoliciesCritc".to_string()), vec![]),
             LabelObject::new(
-                Some("certificatePoliciesOctetString"),
+                Some("certificatePoliciesOctetString".to_string()),
                 vec![LabelObject::new(
-                    Some("certificatePoliciesSeq"),
+                    Some("certificatePoliciesSeq".to_string()),
                     vec![LabelObject::new(
-                        Some("certificatePoliciesSeq2"),
+                        Some("certificatePoliciesSeq2".to_string()),
                         vec![LabelObject::new(
-                            Some("certificatePolicyOID"),
+                            Some("certificatePolicyOID".to_string()),
                             vec![
-                                LabelObject::new(Some("certificatePolicyQualifier"), vec![]),
-                                LabelObject::new(Some("certificatePolicy"), vec![]),
+                                LabelObject::new(Some("certificatePolicyQualifier".to_string()), vec![]),
+                                LabelObject::new(Some("certificatePolicy".to_string()), vec![]),
                             ],
                         )],
                     )],
@@ -325,23 +419,23 @@ pub fn label_extensions_rpki() -> HashMap<&'static str, LabelObject<'static>> {
     );
 
     let ip_addr_blocks = LabelObject::new(
-        Some("ipAddrBlocksExt"),
+        Some("ipAddrBlocksExt".to_string()),
         vec![
-            LabelObject::new(Some("ipAddrBlocksExtID"), vec![]),
-            LabelObject::new(Some("ipAddrBlocksCritc"), vec![]),
+            LabelObject::new(Some("ipAddrBlocksExtID".to_string()), vec![]),
+            LabelObject::new(Some("ipAddrBlocksCritc".to_string()), vec![]),
             LabelObject::new(
-                Some("ipAddrBlocksOctetString"),
+                Some("ipAddrBlocksOctetString".to_string()),
                 vec![LabelObject::new(
-                    Some("ipAddrBlocksSequence"),
+                    Some("ipAddrBlocksSequence".to_string()),
                     vec![LabelObject::new(
-                        Some("ipAddrBlocksInnerSeq"),
+                        Some("ipAddrBlocksInnerSeq".to_string()),
                         vec![
-                            LabelObject::new(Some("ipAddrBlockFamily"), vec![]),
+                            LabelObject::new(Some("ipAddrBlockFamily".to_string()), vec![]),
                             LabelObject::new(
-                                Some("ipAddrBlockDataSeq"),
+                                Some("ipAddrBlockDataSeq".to_string()),
                                 vec![
-                                    LabelObject::new(Some("ipAddrBlockMin"), vec![]),
-                                    LabelObject::new(Some("ipAddrBlockMax"), vec![]),
+                                    LabelObject::new(Some("ipAddrBlockMin".to_string()), vec![]),
+                                    LabelObject::new(Some("ipAddrBlockMax".to_string()), vec![]),
                                 ],
                             ),
                         ],
@@ -352,22 +446,22 @@ pub fn label_extensions_rpki() -> HashMap<&'static str, LabelObject<'static>> {
     );
 
     let autonomous_system_ids = LabelObject::new(
-        Some("autonomousSystemIdsExt"),
+        Some("autonomousSystemIdsExt".to_string()),
         vec![
-            LabelObject::new(Some("autonomousSystemIdsExtID"), vec![]),
-            LabelObject::new(Some("autonomousSystemIdsCritc"), vec![]),
+            LabelObject::new(Some("autonomousSystemIdsExtID".to_string()), vec![]),
+            LabelObject::new(Some("autonomousSystemIdsCritc".to_string()), vec![]),
             LabelObject::new(
-                Some("autonomousSystemIdsOctetString"),
-                vec![LabelObject::new(Some("autonomousSystemIdsSequence"), vec![])],
+                Some("autonomousSystemIdsOctetString".to_string()),
+                vec![LabelObject::new(Some("autonomousSystemIdsSequence".to_string()), vec![])],
             ),
         ],
     );
 
     let crl_numbers = LabelObject::new(
-        Some("crlNumbersExt"),
+        Some("crlNumbersExt".to_string()),
         vec![
-            LabelObject::new(Some("crlNumbersExtID"), vec![]),
-            LabelObject::new(Some("crlNumbersOctetString"), vec![LabelObject::new(Some("crlNumber"), vec![])]),
+            LabelObject::new(Some("crlNumbersExtID".to_string()), vec![]),
+            LabelObject::new(Some("crlNumbersOctetString".to_string()), vec![LabelObject::new(Some("crlNumber".to_string()), vec![])]),
         ],
     );
 
@@ -388,95 +482,161 @@ pub fn label_extensions_rpki() -> HashMap<&'static str, LabelObject<'static>> {
     map
 }
 
-pub fn label_certificate(typ: &str) -> LabelObject<'static> {
-    let version = LabelObject::new(Some("versionImp"), vec![LabelObject::new(Some("version"), vec![])]);
-
-    let serial = LabelObject::new(Some("serialNumber"), vec![]);
+// Assuming typ == "crl"
+pub fn label_empty_crl() -> LabelObject {
+    let serial = LabelObject::new(Some("serialNumber".to_string()), vec![]);
 
     let sig_alg_id = LabelObject::new(
-        Some("signatureAlgorithmField"),
+        Some("signatureAlgorithmField".to_string()),
         vec![
-            LabelObject::new(Some("certificateSignatureAlgorithm"), vec![]),
-            LabelObject::new(Some("certificateSignatureAlgorithmParameters"), vec![]),
+            LabelObject::new(Some("certificateSignatureAlgorithm".to_string()), vec![]),
+            LabelObject::new(Some("certificateSignatureAlgorithmParameters".to_string()), vec![]),
         ],
     );
 
     let issuer = LabelObject::new(
-        Some("issuerField"),
+        Some("issuerField".to_string()),
         vec![LabelObject::new(
-            Some("issuerFieldSet"),
+            Some("issuerFieldSet".to_string()),
             vec![LabelObject::new(
-                Some("issuerFieldSet2"),
+                Some("issuerFieldSet2".to_string()),
                 vec![
-                    LabelObject::new(Some("issuerOid"), vec![]),
-                    LabelObject::new(Some("issuerName"), vec![]),
+                    LabelObject::new(Some("issuerOid".to_string()), vec![]),
+                    LabelObject::new(Some("issuerName".to_string()), vec![]),
+                ],
+            )],
+        )],
+    );
+
+    let ext = LabelObject {
+        label: Some("extensions".to_string()),
+        label_info: None,
+        children: vec![],
+        label_function: Some(label_fn_extensions),
+    };
+
+    let extensions = LabelObject::new(Some("extensionsField".to_string()), vec![ext]);
+    let certificate = {
+        LabelObject::new(
+            Some("certificate".to_string()),
+            vec![
+                serial,
+                sig_alg_id,
+                issuer,
+                LabelObject::new(Some("notBefore".to_string()), vec![]),
+                LabelObject::new(Some("notAfter".to_string()), vec![]),
+                extensions,
+            ],
+        )
+    };
+
+    let cert_choices = LabelObject::new(
+        Some("certificateChoices".to_string()),
+        vec![
+            certificate,
+            LabelObject::new(
+                Some("certificateSignatureAlgorithm".to_string()),
+                vec![
+                    LabelObject::new(Some("certificateSignatureAlgorithmOid".to_string()), vec![]),
+                    LabelObject::new(Some("certificateSignatureAlgorithmParameters".to_string()), vec![]),
+                ],
+            ),
+            LabelObject::new(Some("certificateSignature".to_string()), vec![]),
+        ],
+    );
+
+    return cert_choices;
+}
+
+pub fn label_certificate(typ: &str) -> LabelObject {
+    let version = LabelObject::new(Some("versionImp".to_string()), vec![LabelObject::new(Some("version".to_string()), vec![])]);
+
+    let serial = LabelObject::new(Some("serialNumber".to_string()), vec![]);
+
+    let sig_alg_id = LabelObject::new(
+        Some("signatureAlgorithmField".to_string()),
+        vec![
+            LabelObject::new(Some("certificateSignatureAlgorithm".to_string()), vec![]),
+            LabelObject::new(Some("certificateSignatureAlgorithmParameters".to_string()), vec![]),
+        ],
+    );
+
+    let issuer = LabelObject::new(
+        Some("issuerField".to_string()),
+        vec![LabelObject::new(
+            Some("issuerFieldSet".to_string()),
+            vec![LabelObject::new(
+                Some("issuerFieldSet2".to_string()),
+                vec![
+                    LabelObject::new(Some("issuerOid".to_string()), vec![]),
+                    LabelObject::new(Some("issuerName".to_string()), vec![]),
                 ],
             )],
         )],
     );
 
     let validity = LabelObject::new(
-        Some("validityField"),
+        Some("validityField".to_string()),
         vec![
-            LabelObject::new(Some("notBefore"), vec![]),
-            LabelObject::new(Some("notAfter"), vec![]),
+            LabelObject::new(Some("notBefore".to_string()), vec![]),
+            LabelObject::new(Some("notAfter".to_string()), vec![]),
         ],
     );
 
     let subject = LabelObject::new(
-        Some("subjectField"),
+        Some("subjectField".to_string()),
         vec![LabelObject::new(
-            Some("subjectFieldSeq"),
+            Some("subjectFieldSeq".to_string()),
             vec![LabelObject::new(
-                Some("subjectFieldSeq2"),
+                Some("subjectFieldSeq2".to_string()),
                 vec![
-                    LabelObject::new(Some("subjectOid"), vec![]),
-                    LabelObject::new(Some("subjectName"), vec![]),
+                    LabelObject::new(Some("subjectOid".to_string()), vec![]),
+                    LabelObject::new(Some("subjectName".to_string()), vec![]),
                 ],
             )],
         )],
     );
 
     let subject_publickey_info = LabelObject::new(
-        Some("subjectPublicKeyInfoField"),
+        Some("subjectPublicKeyInfoField".to_string()),
         vec![
             LabelObject::new(
-                Some("subjectPublicKeyInfoFieldSeq"),
+                Some("subjectPublicKeyInfoFieldSeq".to_string()),
                 vec![
-                    LabelObject::new(Some("subjectPublicKeyAlgorithm"), vec![]),
-                    LabelObject::new(Some("subjectPublicKeyAlgorithmParameters"), vec![]),
+                    LabelObject::new(Some("subjectPublicKeyAlgorithm".to_string()), vec![]),
+                    LabelObject::new(Some("subjectPublicKeyAlgorithmParameters".to_string()), vec![]),
                 ],
             ),
-            LabelObject::new(Some("subjectPublicKey"), vec![]),
+            LabelObject::new(Some("subjectPublicKey".to_string()), vec![]),
         ],
     );
 
-    let crl_entries = LabelObject::new(Some("crlEntriesField"), vec![LabelObject::new(Some("crlEntries"), vec![])]);
+    let crl_entries = LabelObject::new(Some("crlEntriesField".to_string()), vec![LabelObject::new(Some("crlEntries".to_string()), vec![])]);
 
     let ext = LabelObject {
-        label: Some("extensions"),
+        label: Some("extensions".to_string()),
         label_info: None,
         children: vec![],
         label_function: Some(label_fn_extensions),
     };
 
-    let extensions = LabelObject::new(Some("extensionsField"), vec![ext]);
+    let extensions = LabelObject::new(Some("extensionsField".to_string()), vec![ext]);
     let certificate = if typ == "crl" {
         LabelObject::new(
-            Some("certificate"),
+            Some("certificate".to_string()),
             vec![
                 serial,
                 sig_alg_id,
                 issuer,
-                LabelObject::new(Some("notBefore"), vec![]),
-                LabelObject::new(Some("notAfter"), vec![]),
+                LabelObject::new(Some("notBefore".to_string()), vec![]),
+                LabelObject::new(Some("notAfter".to_string()), vec![]),
                 crl_entries,
                 extensions,
             ],
         )
     } else {
         LabelObject::new(
-            Some("certificate"),
+            Some("certificate".to_string()),
             vec![
                 version,
                 serial,
@@ -491,81 +651,82 @@ pub fn label_certificate(typ: &str) -> LabelObject<'static> {
     };
 
     let cert_choices = LabelObject::new(
-        Some("certificateChoices"),
+        Some("certificateChoices".to_string()),
         vec![
             certificate,
             LabelObject::new(
-                Some("certificateSignatureAlgorithm"),
+                Some("certificateSignatureAlgorithm".to_string()),
                 vec![
-                    LabelObject::new(Some("certificateSignatureAlgorithmOid"), vec![]),
-                    LabelObject::new(Some("certificateSignatureAlgorithmParameters"), vec![]),
+                    LabelObject::new(Some("certificateSignatureAlgorithmOid".to_string()), vec![]),
+                    LabelObject::new(Some("certificateSignatureAlgorithmParameters".to_string()), vec![]),
                 ],
             ),
-            LabelObject::new(Some("certificateSignature"), vec![]),
+            LabelObject::new(Some("certificateSignature".to_string()), vec![]),
         ],
     );
 
     if typ == "roa" || typ == "mft" || typ == "gbr" || typ == "asa" {
-        return LabelObject::new(Some("CertificateImp"), vec![cert_choices]);
+        return LabelObject::new(Some("CertificateImp".to_string()), vec![cert_choices]);
     } else {
         return cert_choices;
     }
 }
 
-pub fn label_tree_roa() -> LabelObject<'static> {
-    let ip_field = LabelObject::new(
-        Some("ipAddrBlocksField"),
-        vec![LabelObject::new(
-            Some("ipAddrBlocksOutSeq"),
-            vec![LabelObject::new(Some("ipAddrBlocks"), vec![])],
-        )],
-    );
-    LabelObject::new(
-        Some("encapsulatedContent"),
-        vec![
-            LabelObject::new(Some("AS-ID"), vec![]),
-            LabelObject::new(Some("IpAddresses"), vec![ip_field]),
-        ],
-    )
+pub fn label_tree_roa() -> LabelObject {
+    // let ip_field = LabelObject::new(
+    //     Some("ipAddrBlocksField".to_string()),
+    //     vec![LabelObject::new(
+    //         Some("ipAddrBlocksOutSeq".to_string()),
+    //         vec![LabelObject::new(Some("ipAddrBlocks".to_string()), vec![])],
+    //     )],
+    // );
+    LabelObject{
+        label: Some("encapsulatedContent".to_string()),
+        label_info: None,
+        children: vec![],
+        label_function: Some(label_fn_roa_ip_seq),
+    }
 }
 
-pub fn label_tree_manifest() -> LabelObject<'static> {
-    let manifest_number = LabelObject::new(Some("manifestNumber"), vec![]);
+pub fn label_tree_manifest() -> LabelObject {
+    // let manifest_number = LabelObject::new(Some("manifestNumber".to_string()), vec![]);
 
-    let this_update = LabelObject::new(Some("thisUpdate"), vec![]);
+    // let this_update = LabelObject::new(Some("thisUpdate".to_string()), vec![]);
 
-    let next_update = LabelObject::new(Some("nextUpdate"), vec![]);
+    // let next_update = LabelObject::new(Some("nextUpdate".to_string()), vec![]);
 
-    let hash_algo = LabelObject::new(Some("manifestHashAlgorithm"), vec![]);
+    // let hash_algo = LabelObject::new(Some("manifestHashAlgorithm".to_string()), vec![]);
 
-    let hashes_list = LabelObject::new(Some("manifestHashes"), vec![]);
+    // let hashes_list = LabelObject::new(Some("manifestHashes".to_string()), vec![]);
 
-    let manifest = LabelObject::new(
-        Some("encapsulatedContent"),
-        vec![manifest_number, this_update, next_update, hash_algo, hashes_list],
-    );
+    let manifest = LabelObject{
+        label: Some("encapsulatedContent".to_string()),
+        label_info: None,
+        children: vec![],
+        label_function: Some(label_fn_mft),
+    };
     manifest
 }
 
-pub fn label_tree_aspa() -> LabelObject<'static> {
-    let version = LabelObject::new(Some("versionImp"), vec![LabelObject::new(Some("version"), vec![])]);
+pub fn label_tree_aspa() -> LabelObject {
+    let version = LabelObject::new(Some("versionImp".to_string()), vec![LabelObject::new(Some("version".to_string()), vec![])]);
 
-    let customer_asid = LabelObject::new(Some("customerASID"), vec![]);
+    let customer_asid = LabelObject::new(Some("customerASID".to_string()), vec![]);
 
-    let provider_as_seq = LabelObject::new(Some("providerASSequence"), vec![]);
+    let provider_as_seq = LabelObject::new(Some("providerASSequence".to_string()), vec![]);
 
-    let aspa = LabelObject::new(Some("ASProviderAttestation"), vec![version, customer_asid, provider_as_seq]);
+    let aspa = LabelObject::new(Some("ASProviderAttestation".to_string()), vec![version, customer_asid, provider_as_seq]);
 
     aspa
 }
 
-pub fn label_tree_gbr() -> LabelObject<'static> {
-    let content = LabelObject::new(Some("gbrContent"), vec![]);
+pub fn label_tree_gbr() -> LabelObject {
+    let content = LabelObject::new(Some("gbrContent".to_string()), vec![]);
 
     content
 }
 
-pub fn label_enc_content_inner(typ: &str) -> Vec<LabelObject<'static>> {
+pub fn label_enc_content_inner(typ: &str) -> Vec<LabelObject> {
     let mut children = Vec::new();
 
     if typ == "roa" {
@@ -581,50 +742,50 @@ pub fn label_enc_content_inner(typ: &str) -> Vec<LabelObject<'static>> {
     children
 }
 
-pub fn label_enc_content() -> LabelObject<'static> {
+pub fn label_enc_content() -> LabelObject {
     let oc_label = LabelObject {
-        label: Some("eContentOuterOctet"),
+        label: Some("eContentOuterOctet".to_string()),
         label_info: None,
         children: vec![],
         label_function: Some(label_fn_encoded_content),
     };
     LabelObject::new(
-        Some("encapsulatedContentInfo"),
+        Some("encapsulatedContentInfo".to_string()),
         vec![
-            LabelObject::new(Some("eContentType"), vec![]),
-            LabelObject::new(Some("eContent"), vec![oc_label]),
+            LabelObject::new(Some("eContentType".to_string()), vec![]),
+            LabelObject::new(Some("eContent".to_string()), vec![oc_label]),
         ],
     )
 }
 
-pub fn label_signed_attributes_rpki() -> HashMap<&'static str, LabelObject<'static>> {
+pub fn label_signed_attributes_rpki() -> HashMap<&'static str, LabelObject> {
     let mut map = HashMap::new();
 
     let content_type = LabelObject::new(
-        Some("contentType"),
+        Some("contentType".to_string()),
         vec![
-            LabelObject::new(Some("contentTypeOid"), vec![]),
+            LabelObject::new(Some("contentTypeOid".to_string()), vec![]),
             LabelObject::new(
-                Some("contentTypeValueParent"),
-                vec![LabelObject::new(Some("contentTypeValue"), vec![])],
+                Some("contentTypeValueParent".to_string()),
+                vec![LabelObject::new(Some("contentTypeValue".to_string()), vec![])],
             ),
         ],
     );
 
     let message_digest = LabelObject::new(
-        Some("messageDigestType"),
+        Some("messageDigestType".to_string()),
         vec![
-            LabelObject::new(Some("messageDigestOid"), vec![]),
+            LabelObject::new(Some("messageDigestOid".to_string()), vec![]),
             LabelObject::new(
-                Some("messageDigestValueParent"),
-                vec![LabelObject::new(Some("messageDigest"), vec![])],
+                Some("messageDigestValueParent".to_string()),
+                vec![LabelObject::new(Some("messageDigest".to_string()), vec![])],
             ),
         ],
     );
 
-    let signing_time = LabelObject::new(Some("signingTime"), vec![]);
+    let signing_time = LabelObject::new(Some("signingTime".to_string()), vec![]);
 
-    let signature = LabelObject::new(Some("signedAttrsSig"), vec![]);
+    let signature = LabelObject::new(Some("signedAttrsSig".to_string()), vec![]);
 
     map.insert("1.2.840.113549.1.9.3", content_type);
     map.insert("1.2.840.113549.1.9.4", message_digest);
@@ -634,40 +795,40 @@ pub fn label_signed_attributes_rpki() -> HashMap<&'static str, LabelObject<'stat
     map
 }
 
-pub fn label_signer_infos() -> LabelObject<'static> {
-    let version = LabelObject::new(Some("signerVersion"), vec![]);
+pub fn label_signer_infos() -> LabelObject {
+    let version = LabelObject::new(Some("signerVersion".to_string()), vec![]);
 
-    let sid = LabelObject::new(Some("signerIdentifier"), vec![]);
+    let sid = LabelObject::new(Some("signerIdentifier".to_string()), vec![]);
 
     let digest_alg = LabelObject::new(
-        Some("signerDigestAlgorithmField"),
+        Some("signerDigestAlgorithmField".to_string()),
         vec![
-            LabelObject::new(Some("signerDigestAlgorithm"), vec![]),
-            LabelObject::new(Some("signerDigestAlgorithmParameters"), vec![]),
+            LabelObject::new(Some("signerDigestAlgorithm".to_string()), vec![]),
+            LabelObject::new(Some("signerDigestAlgorithmParameters".to_string()), vec![]),
         ],
     );
 
     let signed_attributes = LabelObject {
-        label: Some("signerSignedAttributesField"),
+        label: Some("signerSignedAttributesField".to_string()),
         label_info: None,
         children: vec![],
         label_function: Some(label_fn_signed_attrs),
     };
 
-    // let signed_attributes = LabelObject::new(Some("signerSignedAttributesField"), vec![]);
+    // let signed_attributes = LabelObject::new(Some("signerSignedAttributesField".to_string()), vec![]);
 
     let signed_signature_algorithm = LabelObject::new(
-        Some("signerSignatureAlgorithm"),
+        Some("signerSignatureAlgorithm".to_string()),
         vec![
-            LabelObject::new(Some("signerSignatureAlgorithmOid"), vec![]),
-            LabelObject::new(Some("signedSignatureAlgorithmParameters"), vec![]),
+            LabelObject::new(Some("signerSignatureAlgorithmOid".to_string()), vec![]),
+            LabelObject::new(Some("signedSignatureAlgorithmParameters".to_string()), vec![]),
         ],
     );
 
-    let signed_signature = LabelObject::new(Some("signerSignature"), vec![]);
+    let signed_signature = LabelObject::new(Some("signerSignature".to_string()), vec![]);
 
     let signer_info = LabelObject::new(
-        Some("signerInfo"),
+        Some("signerInfo".to_string()),
         vec![
             version,
             sid,
@@ -678,36 +839,36 @@ pub fn label_signer_infos() -> LabelObject<'static> {
         ],
     );
 
-    let signer_infos = LabelObject::new(Some("signerInfos"), vec![signer_info]);
+    let signer_infos = LabelObject::new(Some("signerInfos".to_string()), vec![signer_info]);
 
     signer_infos
 }
 
 
-pub fn label_rpki_info() -> LabelObject<'static>{
-    LabelObject::new(Some("rpkiInfo"), vec![
-        LabelObject::new(Some("serialNumber"), vec![]),
-        LabelObject::new(Some("validityPeriod"), vec![
-            LabelObject::new(Some("notBefore"), vec![]),
-            LabelObject::new(Some("notAfter"), vec![]),
+pub fn label_rpki_info() -> LabelObject{
+    LabelObject::new(Some("rpkiInfo".to_string()), vec![
+        LabelObject::new(Some("serialNumber".to_string()), vec![]),
+        LabelObject::new(Some("validityPeriod".to_string()), vec![
+            LabelObject::new(Some("notBefore".to_string()), vec![]),
+            LabelObject::new(Some("notAfter".to_string()), vec![]),
         ]),
-        LabelObject::new(Some("authorityKeyIdentifier"), vec![]),
-        LabelObject::new(Some("signedObjectURI"), vec![]),
+        LabelObject::new(Some("authorityKeyIdentifier".to_string()), vec![]),
+        LabelObject::new(Some("signedObjectURI".to_string()), vec![]),
     ])
 }
 
-pub fn label_iroa() -> LabelObject<'static>{
+pub fn label_iroa() -> LabelObject{
     let oc_label = LabelObject {
-        label: Some("eContentOuterOctet"),
+        label: Some("eContentOuterOctet".to_string()),
         label_info: None,
         children: vec![],
         label_function: Some(label_fn_encoded_content),
     };
     LabelObject::new(
-        Some("roaSeq"),
+        Some("roaSeq".to_string()),
         vec![
-            LabelObject::new(Some("eContentType"), vec![]),
-            LabelObject::new(Some("eContent"), vec![oc_label]),
+            LabelObject::new(Some("eContentType".to_string()), vec![]),
+            LabelObject::new(Some("eContent".to_string()), vec![oc_label]),
             label_rpki_info()
         ],
     )
@@ -715,19 +876,19 @@ pub fn label_iroa() -> LabelObject<'static>{
 
 }
 
-pub fn label_tree(typ: &str) -> Option<LabelObject<'static>> {
+pub fn label_tree(typ: &str, tree: &Tree) -> Option<LabelObject> {
     if typ == "roa" || typ == "mft" || typ == "gbr" || typ == "asa" {
         let signed_data = LabelObject::new(
-            Some("signedData"),
+            Some("signedData".to_string()),
             vec![
-                LabelObject::new(Some("version"), vec![]),
+                LabelObject::new(Some("version".to_string()), vec![]),
                 LabelObject::new(
-                    Some("digestAlgorithmsSet"),
+                    Some("digestAlgorithmsSet".to_string()),
                     vec![LabelObject::new(
-                        Some("digestAlgorithmSeq"),
+                        Some("digestAlgorithmSeq".to_string()),
                         vec![
-                            LabelObject::new(Some("digestAlgorithm"), vec![]),
-                            LabelObject::new(Some("digestParameters"), vec![]),
+                            LabelObject::new(Some("digestAlgorithm".to_string()), vec![]),
+                            LabelObject::new(Some("digestParameters".to_string()), vec![]),
                         ],
                     )],
                 ),
@@ -738,18 +899,26 @@ pub fn label_tree(typ: &str) -> Option<LabelObject<'static>> {
         );
 
         let content_info = LabelObject::new(
-            Some("contentInfo"),
+            Some("contentInfo".to_string()),
             vec![
-                LabelObject::new(Some("contentType"), vec![]),
-                LabelObject::new(Some("content"), vec![signed_data]),
+                LabelObject::new(Some("contentType".to_string()), vec![]),
+                LabelObject::new(Some("content".to_string()), vec![signed_data]),
             ],
         );
 
         Some(content_info)
-    } else if typ == "cert" || typ == "cer" || typ == "crl" {
+    } else if typ == "cert" || typ == "cer" {
         Some(label_certificate(typ))
-    } 
-    else if typ == "iroa"{
+    } else if typ == "crl" {
+        let crl = tree.get_data_by_id(tree.root_id).unwrap();
+        let os_parsed = openssl::x509::X509Crl::from_der(&crl).unwrap();
+        let rc = os_parsed.get_revoked();
+        if rc.is_none() {
+            Some(label_empty_crl())
+        } else {
+            Some(label_certificate(typ))
+        }
+    } else if typ == "iroa"{
         Some(label_iroa())
     }
     else {

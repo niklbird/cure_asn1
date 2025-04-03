@@ -6,3 +6,4 @@ pub mod rpki;
 pub mod rpki_utils;
 pub mod rrdp;
 pub mod tree_parser;
+pub mod tree_paths;

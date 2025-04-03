@@ -102,10 +102,10 @@ pub fn parse_ip(ip: &Vec<u8>, fam: u8, padding_amount: usize) -> String {
     return ret;
 }
 
-pub fn byt_to_in(inp: Vec<u8>) -> u64 {
+pub fn byt_to_in(inp: &Vec<u8>) -> u64 {
     let mut result: u64 = 0;
     for byte in inp {
-        result = (result << 8) | (byte as u64);
+        result = (result << 8) | (*byte as u64);
     }
     result
 }
