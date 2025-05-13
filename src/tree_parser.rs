@@ -1,6 +1,4 @@
-///
-/// Construct a syntax tree from a parsed ASN.1 object.
-/// 
+//! Construct a syntax tree from a parsed ASN.1 object.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -19,6 +17,7 @@ use rand::prelude::SliceRandom;
 use rand::Rng;
 
 use crate::asn1_parser::Element;
+use crate::labeling::{Label, LabelName};
 
 /// Parse DER-encoded Data into an Abstract Syntax Tree
 pub fn parse_tree(data: &Vec<u8>, typ: &str) -> Option<Tree> {
@@ -190,7 +189,7 @@ impl Token {
         let tag_display = format!("{}", &self.visual_tag[0]);
         let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
-        let len_display = format!("({} byte)", self.length); 
+        let len_display = format!("({} byte)", self.length);
         let len_val = (self.length, len_display, encode_asn1_length(self.length));
 
         let con_display = format!("{}", hex::encode(&self.data));
@@ -252,7 +251,7 @@ impl Token {
             }
         }
         return (format!("0x{}", hex::encode(&self.data)), human_readable);
-        
+
     }
 
 
@@ -280,7 +279,7 @@ impl Token {
 
 
     /// Returns: (What should be shown when clicked, what should be shown in overview, binary data for hex representation)
-    pub fn to_string_pretty(&self) -> (String, (u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, String, Vec<u8>)){ 
+    pub fn to_string_pretty(&self) -> (String, (u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, String, Vec<u8>)){
         match self.tag_u{
             0x01 => {
                 let tag_display = if self.tag_u == self.visual_tag[0] {
@@ -336,7 +335,7 @@ impl Token {
                 } else {
                     format!("[tag {} (original SET)]", self.visual_tag[0])
                 };
-                
+
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} nodes)", self.children.len());
@@ -352,7 +351,7 @@ impl Token {
                 } else {
                     format!("[tag {} (original OCTETSTRING)]", self.visual_tag[0])
                 };
-                
+
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} byte)", self.visual_length);
@@ -392,7 +391,7 @@ impl Token {
                 } else {
                     format!("[tag {} (original OBJECT IDENTIFIER)]", self.visual_tag[0])
                 };
-                
+
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} byte)", self.visual_length);
@@ -578,8 +577,8 @@ pub struct Tree {
     pub first_algoid: bool,
     pub first_rsa: bool,
 
-    // Map a label to an ID
-    pub labels: HashMap<String, usize>,
+    /// Map a label to an ID
+    pub labels: HashMap<Label, usize>,
     pub mutations: Vec<Mutation>,
     pub additional_info: HashMap<String, Vec<u8>>,
     pub root_id: usize,
@@ -613,7 +612,7 @@ impl Tree {
             self.labels.insert(label.unwrap(), new_id);
         }
         self.tokens.insert(new_id, token);
-        
+
         if child_position.is_none(){
             self.tokens.get_mut(&parent).unwrap().children.push(new_id);
         }
@@ -693,7 +692,7 @@ impl Tree {
         keys[random_index]
     }
 
-    
+
     /// This token ID selection favors TLV tokens, as they usually contain the content and are therefore the most interesting.
     pub fn guided_token_id(&self) -> usize {
         let mut rng = rand::thread_rng();
@@ -718,7 +717,7 @@ impl Tree {
         }
     }
 
-    /// Select a random token, but emphasize encapContentInfo since that is interesting for RPKI objects    
+    /// Select a random token, but emphasize encapContentInfo since that is interesting for RPKI objects
     pub fn splice_token_id(&self) -> usize {
         let old_cure = true;
         let probs = vec![0, 0, 0, 1];
@@ -1258,7 +1257,7 @@ impl Tree {
         }
         else{
             panic!("Not supported {}", typ);
-        }        
+        }
     }
 
     pub fn label_tree(&mut self) {
@@ -1309,7 +1308,7 @@ impl Tree {
         if self.tokens.len() == 0{
             return 0;
         }
-        
+
         let root_id = self.root_id;
 
         let (child_len_full, child_data_len) = self.fix_sizes_rec(&root_id, mandatory_taint);
@@ -1707,20 +1706,21 @@ impl Tree {
         }
     }
 
-    pub fn get_node_by_label(&self, label: &str) -> Option<&Token> {
-        let id = self.labels.get(label);
-        match id {
-            Some(id) => Some(self.get_node(*id)?),
-            None => None,
-        }
+    pub fn get_node_by_label(&self, label: &Label) -> Option<&Token> {
+        self.labels.get(label).and_then(|&id| self.get_node(id))
     }
 
-    pub fn get_node_by_label_mut(&mut self, label: &str) -> Option<&mut Token> {
-        let id = self.labels.get(label);
-        match id {
-            Some(id) => Some(self.get_node_mut(*id).unwrap()),
-            None => None,
-        }
+    pub fn get_nodes_by_label_name(&self, label_name: LabelName) -> Vec<&Token> { // TODO slice?
+        todo!()
+    }
+
+    pub fn get_node_by_label_mut(&mut self, label: &Label) -> Option<&mut Token> {
+        let &id = self.labels.get(label)?;
+        self.get_node_mut(id)
+    }
+
+    pub fn get_nodes_by_label_name_mut(&mut self, label_name: LabelName) -> Option<&mut Token> {
+        todo!()
     }
 
     fn get_id_by_path_rec(&self, node: &Token, path: &[&str]) -> Option<usize> {
@@ -2046,6 +2046,7 @@ pub fn decode_oid_to_string(encoded: &[u8]) -> String {
         .join(".")
 }
 
+/// Converts a binary value
 fn int_to_hex(v: u8) -> u8 {
     let hex_integer: u8 = u8::from_str_radix(&v.to_string(), 16).unwrap();
     hex_integer
@@ -2059,8 +2060,6 @@ fn vec_to_bin(bitstring: &Vec<u8>) -> String {
         .collect::<Vec<String>>() // Collect into a vector of strings
         .join("") // Join them together
 }
-
-
 
 pub fn rpki_oid_map() -> HashMap<&'static str, &'static str> {
     HashMap::from([
@@ -2124,4 +2123,16 @@ pub fn rpki_oid_map() -> HashMap<&'static str, &'static str> {
         ("2.5.4.6", "countryName"),
         ("2.5.4.3", "commonName"),
     ])
+}
+
+#[cfg(test)]
+mod test {
+    use crate::tree_parser::int_to_hex;
+
+    #[test]
+    fn test_int_to_hex() {
+        for i in 0..20 {
+            println!("{}", int_to_hex(i));
+        }
+    }
 }
