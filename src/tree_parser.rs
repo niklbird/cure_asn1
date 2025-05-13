@@ -13,6 +13,7 @@ use rand::prelude::SliceRandom;
 use rand::Rng;
 
 use crate::asn1_parser::Element;
+use crate::labeling::{Label, LabelName};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Copy)]
 pub enum Types {
@@ -425,8 +426,8 @@ pub struct Tree {
     pub first_algoid: bool,
     pub first_rsa: bool,
 
-    // Map a label to an ID
-    pub labels: HashMap<String, usize>,
+    /// Map a label to an ID
+    pub labels: HashMap<Label, usize>,
     pub mutations: Vec<Mutation>,
     pub additional_info: HashMap<String, Vec<u8>>,
     pub root_id: usize,
@@ -1443,20 +1444,21 @@ impl Tree {
         }
     }
 
-    pub fn get_node_by_label(&self, label: &str) -> Option<&Token> {
-        let id = self.labels.get(label);
-        match id {
-            Some(id) => Some(self.get_node(*id).unwrap()),
-            None => None,
-        }
+    pub fn get_node_by_label(&self, label: &Label) -> Option<&Token> {
+        self.labels.get(label).and_then(|&id| self.get_node(id))
     }
 
-    pub fn get_node_by_label_mut(&mut self, label: &str) -> Option<&mut Token> {
-        let id = self.labels.get(label);
-        match id {
-            Some(id) => Some(self.get_node_mut(*id).unwrap()),
-            None => None,
-        }
+    pub fn get_nodes_by_label_name(&self, label_name: LabelName) -> Vec<&Token> { // TODO slice?
+        todo!()
+    }
+
+    pub fn get_node_by_label_mut(&mut self, label: &Label) -> Option<&mut Token> {
+        let &id = self.labels.get(label)?;
+        self.get_node_mut(id)
+    }
+
+    pub fn get_nodes_by_label_name_mut(&mut self, label_name: LabelName) -> Option<&mut Token> {
+        todo!()
     }
 
     fn get_id_by_path_rec(&self, node: &Token, path: &[&str]) -> Option<usize> {
@@ -1777,6 +1779,7 @@ pub fn decode_oid_to_string(encoded: &[u8]) -> String {
         .join(".")
 }
 
+/// Converts a binary value
 fn int_to_hex(v: u8) -> u8 {
     let hex_integer: u8 = u8::from_str_radix(&v.to_string(), 16).unwrap();
     hex_integer
@@ -1789,4 +1792,16 @@ fn vec_to_bin(bitstring: &Vec<u8>) -> String {
         .map(|byte| format!("{:08b}", byte)) // Convert each byte to an 8-bit binary string
         .collect::<Vec<String>>() // Collect into a vector of strings
         .join("") // Join them together
+}
+
+#[cfg(test)]
+mod test {
+    use crate::tree_parser::int_to_hex;
+
+    #[test]
+    fn test_int_to_hex() {
+        for i in 0..20 {
+            println!("{}", int_to_hex(i));
+        }
+    }
 }

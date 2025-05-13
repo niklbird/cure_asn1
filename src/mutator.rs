@@ -600,6 +600,7 @@ pub fn mutate_date(data: Vec<u8>) -> Vec<u8> {
 
 pub fn mutate_content_specific(token: &mut Token) -> ContentMutation {
     let data = token.data.clone();
+    // TODO clean this into match on enum
     let tag = token.tag.to_type_id();
     if tag == 1 {
         token.data = mutate_bool(data);
