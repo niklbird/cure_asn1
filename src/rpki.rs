@@ -17,6 +17,7 @@ use std::{
 };
 
 use std::error::Error;
+use crate::tree_parser::Token;
 
 
 pub fn parse_rpki_object(data: &Vec<u8>, typ: &ObjectType) -> Option<RpkiObject> {
@@ -61,7 +62,7 @@ impl RpkiObject {
     }
 
     pub fn get_roa_asn(&self) -> Option<u64> {
-        let raw = self.content.get_raw_by_label("AS-ID");
+        let raw = self.content.get_raw_by_label("asID");
 
         if raw.is_none() {
             return None;
@@ -76,6 +77,7 @@ impl RpkiObject {
         Some(result)
     }
 
+    #[deprecated]
     pub fn get_roa_ips_string(&self) -> Vec<String> {
         let mut ips = vec![];
         let n = self.content.get_node_by_label("IpAddresses");
@@ -133,6 +135,61 @@ impl RpkiObject {
         ips
     }
 
+    pub fn get_roa_ips_string_v4(&self) -> Vec<String> {
+        let Some(n) = self.content.get_node_by_label("ipAddrBlocksv4") else { return vec![] };
+        self.get_roa_ips_string_from_token(n, 1)
+    }
+
+    pub fn get_roa_ips_string_v6(&self) -> Vec<String> {
+        let Some(n) = self.content.get_node_by_label("ipAddrBlocksv6") else { return vec![] };
+        self.get_roa_ips_string_from_token(n, 2)
+    }
+
+    fn get_roa_ips_string_from_token(&self, n: &Token, fam: u8) -> Vec<String> {
+        let mut ips = vec![];
+
+        for child in &n.children {
+            let child_node = self.content.get_node(*child).unwrap();
+
+            if child_node.children.len() < 1 {
+                println!(
+                    "No children in IP node {:?}",
+                    BASE64_STANDARD.encode(self.content.encode())
+                );
+                continue;
+            }
+            let ip = {
+                let ip_nod = self.content.get_node(child_node.children[0]).unwrap();
+                let ip_raw = ip_nod.data.clone();
+                let padding = ip_raw[0];
+                parse_ip(&ip_raw[1..].to_vec(), fam, padding as usize)
+            };
+
+            let ml = if child_node.children.len() == 2 {
+                let ml_nod = self.content.get_node(child_node.children[1]).unwrap();
+                if ml_nod.data.len() == 1 {
+                    ml_nod.data[0]
+                } else {
+                    byt_to_in(&ml_nod.data.clone()).try_into().unwrap_or(0)
+                }
+            } else {
+                ip.split("/").collect::<Vec<&str>>()[1].parse::<u8>().unwrap()
+            };
+
+            if ml == 0 {
+                println!(
+                    "ML is 0 {}, child len {:?}",
+                    ip,
+                    self.content.get_node(child_node.children[1]).unwrap()
+                );
+            }
+            let final_ip = ip + "," + &ml.to_string();
+            ips.push(final_ip);
+        }
+
+        ips
+    }
+
     pub fn get_mft_number(&self) -> Option<u64> {
         let data = self.content.get_raw_by_label("manifestNumber")?;
 
@@ -141,7 +198,7 @@ impl RpkiObject {
     }
 
     pub fn get_cert_ski(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label("subjectKeyIdentifier")?;
+        let data = self.content.get_raw_by_label("authorityInfoAccess")?;
         Some(hex::encode(data))
     }
 
@@ -150,6 +207,12 @@ impl RpkiObject {
             .content
             .get_node_by_label("authorityKeyIdentifierExtID")
             .is_none();
+    }
+
+    pub fn get_cert_issuer_uri(&self) -> Option<String> {
+        let data = self.content.get_raw_by_label("caIssuersURI")?;
+
+        Some(from_utf8(&data).unwrap_or_default().to_string())
     }
 
     pub fn get_cert_notification_uri(&self) -> Option<String> {
