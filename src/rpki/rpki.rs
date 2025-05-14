@@ -18,6 +18,8 @@ use std::{
 };
 
 use std::error::Error;
+use crate::labeling::Label;
+use crate::labeling::LabelName::{CertExtAia, CertExtAiaCaIssuersUri, CertExtAkiKeyIdentifier, CertExtSiaCaRepositoryUri, CertExtSiaNotificationUri, CertExtSiaSignedObjectUri, CertFldIssuerAttributeValue, CertFldSubjectAttributeValue, MftNumber, RoaAsid, RoaIpAddressFamilyAddresses, SignatureAlgorithmId, SignerInfoSignerIdentifier};
 use crate::tree_parser::Token;
 
 
@@ -110,13 +112,7 @@ impl RpkiObject {
     }
 
     pub fn get_roa_asn(&self) -> Option<u64> {
-        let raw = self.content.get_raw_by_label("asID");
-
-        if raw.is_none() {
-            return None;
-        }
-
-        let raw = raw.unwrap();
+        let raw = self.content.get_raw_by_label(&RoaAsid.into())?;
 
         let mut result: u64 = 0;
         for (_, &byte) in raw.iter().enumerate() {
@@ -219,71 +215,74 @@ impl RpkiObject {
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
 
-    #[deprecated]
     pub fn get_roa_ips_string(&self) -> Vec<String> {
-        let mut ips = vec![];
-        let n = self.content.get_node_by_label("ipAddrBlocks");
-        if n.is_none() {
-            return ips;
-        }
-
-        let n = n.unwrap();
-        for child in &n.children {
-            let child_node = self.content.get_node(*child).unwrap();
-            let family = byt_to_in(&self.content.tokens[&child_node.children[0]].data.clone());
-
-            for full_ip in &self.content.tokens[&child_node.children[1]].children {
-                let nod = self.content.get_node(*full_ip).unwrap();
-                if nod.children.len() < 1 {
-                    println!(
-                        "No children in IP node {:?}",
-                        BASE64_STANDARD.encode(self.content.encode())
-                    );
-                    continue;
-                }
-                let ip_nod = self.content.get_node(nod.children[0]).unwrap();
-                let ip_raw = ip_nod.data.clone();
-                let padding = ip_raw[0];
-
-                let ip = parse_ip(
-                    &ip_raw[1..].to_vec(),
-                    family.try_into().unwrap(),
-                    padding as usize,
-                );
-                let ml;
-                if nod.children.len() == 2 {
-                    let child = self.content.get_node(nod.children[1]).unwrap();
-                    if child.data.len() == 1 {
-                        ml = child.data[0];
-                    } else {
-                        ml = byt_to_in(&child.data.clone()).try_into().unwrap_or(0);
-                    };
-                } else {
-                    ml = ip.split("/").collect::<Vec<&str>>()[1]
-                        .parse::<u8>()
-                        .unwrap();
-                }
-                if ml == 0 {
-                    println!(
-                        "ML is 0 {}, child len {:?}",
-                        ip,
-                        self.content.get_node(nod.children[1]).unwrap()
-                    );
-                }
-                let final_ip = ip + "," + &ml.to_string();
-                ips.push(final_ip);
-            }
-        }
-        ips
+        // let mut ips = vec![];
+        // let n = self.content.get_node_by_label("ipAddrBlocks");
+        // if n.is_none() {
+        //     return ips;
+        // }
+        //
+        // let n = n.unwrap();
+        // for child in &n.children {
+        //     let child_node = self.content.get_node(*child).unwrap();
+        //     let family = byt_to_in(&self.content.tokens[&child_node.children[0]].data.clone());
+        //
+        //     for full_ip in &self.content.tokens[&child_node.children[1]].children {
+        //         let nod = self.content.get_node(*full_ip).unwrap();
+        //         if nod.children.len() < 1 {
+        //             println!(
+        //                 "No children in IP node {:?}",
+        //                 BASE64_STANDARD.encode(self.content.encode())
+        //             );
+        //             continue;
+        //         }
+        //         let ip_nod = self.content.get_node(nod.children[0]).unwrap();
+        //         let ip_raw = ip_nod.data.clone();
+        //         let padding = ip_raw[0];
+        //
+        //         let ip = parse_ip(
+        //             &ip_raw[1..].to_vec(),
+        //             family.try_into().unwrap(),
+        //             padding as usize,
+        //         );
+        //         let ml;
+        //         if nod.children.len() == 2 {
+        //             let child = self.content.get_node(nod.children[1]).unwrap();
+        //             if child.data.len() == 1 {
+        //                 ml = child.data[0];
+        //             } else {
+        //                 ml = byt_to_in(&child.data.clone()).try_into().unwrap_or(0);
+        //             };
+        //         } else {
+        //             ml = ip.split("/").collect::<Vec<&str>>()[1]
+        //                 .parse::<u8>()
+        //                 .unwrap();
+        //         }
+        //         if ml == 0 {
+        //             println!(
+        //                 "ML is 0 {}, child len {:?}",
+        //                 ip,
+        //                 self.content.get_node(nod.children[1]).unwrap()
+        //             );
+        //         }
+        //         let final_ip = ip + "," + &ml.to_string();
+        //         ips.push(final_ip);
+        //     }
+        // }
+        // ips
+        // FIXME check if works
+        let mut vec = self.get_roa_ips_string_v4();
+        vec.extend(self.get_roa_ips_string_v6());
+        vec
     }
 
     pub fn get_roa_ips_string_v4(&self) -> Vec<String> {
-        let Some(n) = self.content.get_node_by_label("ipAddrBlocksv4") else { return vec![] };
+        let Some(n) = self.content.get_node_by_label(&Label::new(RoaIpAddressFamilyAddresses, 1)) else { return vec![] };
         self.get_roa_ips_string_from_token(n, 1)
     }
 
     pub fn get_roa_ips_string_v6(&self) -> Vec<String> {
-        let Some(n) = self.content.get_node_by_label("ipAddrBlocksv6") else { return vec![] };
+        let Some(n) = self.content.get_node_by_label(&Label::new(RoaIpAddressFamilyAddresses, 2)) else { return vec![] };
         self.get_roa_ips_string_from_token(n, 2)
     }
 
@@ -333,38 +332,39 @@ impl RpkiObject {
     }
 
     pub fn get_mft_number(&self) -> Option<u64> {
-        let data = self.content.get_raw_by_label("manifestNumber")?;
+        let data = self.content.get_raw_by_label(&MftNumber.into())?;
 
         let number = byt_to_in(&data);
         return Some(number);
     }
 
     pub fn get_cert_ski(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label("subjectKeyIdentifier")?;
+        let data = self.content.get_raw_by_label(&SignerInfoSignerIdentifier.into())?;
+        // FIXME let data = self.content.get_raw_by_label("subjectKeyIdentifier")?;
         Some(hex::encode(data))
     }
 
     pub fn get_cert_is_root(&self) -> bool {
         return self
             .content
-            .get_node_by_label("authorityKeyIdentifierExtID")
+            .get_node_by_label(&CertExtAia.into())
             .is_none();
     }
 
     pub fn get_cert_issuer_uri(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label("caIssuersURI")?;
+        let data = self.content.get_raw_by_label(&CertExtAiaCaIssuersUri.into())?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
 
     pub fn get_cert_notification_uri(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label("rpkiNotifyURI")?;
+        let data = self.content.get_raw_by_label(&CertExtSiaNotificationUri.into())?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
 
     pub fn get_cert_rsync_repo_uri(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label("caRepositoryURI")?;
+        let data = self.content.get_raw_by_label(&CertExtSiaCaRepositoryUri.into())?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
@@ -376,7 +376,7 @@ impl RpkiObject {
     }
 
     pub fn get_cert_signed_uri(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label("signedObjectURI")?;
+        let data = self.content.get_raw_by_label(&CertExtSiaSignedObjectUri.into())?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
@@ -414,24 +414,24 @@ impl RpkiObject {
 
 
     pub fn get_cert_aki(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label("authorityKeyIdentifier")?;
+        let data = self.content.get_raw_by_label(&CertExtAkiKeyIdentifier.into())?;
         Some(hex::encode(data))
     }
 
     pub fn get_cert_issuername(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label("issuerName")?;
+        let data = self.content.get_raw_by_label(&CertFldIssuerAttributeValue.into())?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
 
     pub fn get_cert_subjectname(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label("subjectName")?;
+        let data = self.content.get_raw_by_label(&CertFldSubjectAttributeValue.into())?;
 
         Some(from_utf8(&data).unwrap().to_string())
     }
 
     pub fn get_signature_oid(&self) -> String {
-        let data = self.content.get_raw_by_label("signerSignatureAlgorithmOid");
+        let data = self.content.get_raw_by_label(&SignatureAlgorithmId.into()); // TODO validate correctness
         if data.is_none() {
             return "Unknown".to_string();
         }
