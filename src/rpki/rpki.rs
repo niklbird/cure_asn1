@@ -19,7 +19,7 @@ use std::{
 
 use std::error::Error;
 use crate::labeling::Label;
-use crate::labeling::LabelName::{CertExtAia, CertExtAiaCaIssuersUri, CertExtAkiKeyIdentifier, CertExtSiaCaRepositoryUri, CertExtSiaNotificationUri, CertExtSiaSignedObjectUri, CertFldIssuerAttributeValue, CertFldSubjectAttributeValue, MftNumber, RoaAsid, RoaIpAddressFamilyAddresses, SignatureAlgorithmId, SignerInfoSignerIdentifier};
+use crate::labeling::LabelName::{CertExtAia, CertExtAiaCaIssuersUri, CertExtAkiKeyIdentifier, CertExtIpAddressChoice, CertExtSiaCaRepositoryUri, CertExtSiaNotificationUri, CertExtSiaSignedObjectUri, CertFldIssuerAttributeValue, CertFldSubjectAttributeValue, MftNumber, RoaAsid, RoaIpAddressFamilyAddresses, SignatureAlgorithmId, SignerInfoSignerIdentifier};
 use crate::tree_parser::Token;
 
 
@@ -326,6 +326,64 @@ impl RpkiObject {
             }
             let final_ip = ip + "," + &ml.to_string();
             ips.push(final_ip);
+        }
+
+        ips
+    }
+
+    /// # Return
+    ///
+    /// - None, if the IPv4 family is not included
+    /// - An empty vec, if "inherit"
+    /// - A vec of prefixes or ranges, else
+    pub fn get_cert_ips_string_v4(&self) -> Option<Vec<String>> {
+        let n = self.content.get_node_by_label(&Label::new(CertExtIpAddressChoice, 1))?;
+        Some(self.get_cert_ips_string_from_token(n, 1))
+    }
+
+    /// # Return
+    ///
+    /// - None, if the IPv6 family is not included
+    /// - An empty vec, if "inherit"
+    /// - A vec of prefixes or ranges, else
+    pub fn get_cert_ips_string_v6(&self) -> Option<Vec<String>> {
+        let n = self.content.get_node_by_label(&Label::new(CertExtIpAddressChoice, 2))?;
+        Some(self.get_cert_ips_string_from_token(n, 2))
+    }
+
+    fn get_cert_ips_string_from_token(&self, n: &Token, fam: u8) -> Vec<String> {
+        let mut ips = vec![];
+
+        for child in &n.children {
+            let child_node = self.content.get_node(*child).unwrap();
+
+            if child_node.children.is_empty() {
+                // prefix
+                let ip = {
+                    let ip_raw = child_node.data.clone();
+                    let padding = ip_raw[0];
+                    parse_ip(&ip_raw[1..].to_vec(), fam, padding as usize)
+                };
+                ips.push(ip);
+            } else if child_node.children.len() == 2 {
+                // range
+                let ip_min = {
+                    let ip_nod = self.content.get_node(child_node.children[0]).unwrap();
+                    let ip_raw = ip_nod.data.clone();
+                    let padding = ip_raw[0];
+                    parse_ip(&ip_raw[1..].to_vec(), fam, padding as usize)
+                };
+                let ip_max = {
+                    let ip_nod = self.content.get_node(child_node.children[1]).unwrap();
+                    let ip_raw = ip_nod.data.clone();
+                    let padding = ip_raw[0];
+                    parse_ip(&ip_raw[1..].to_vec(), fam, padding as usize)
+                };
+                ips.push(format!("{}-{}",
+                    ip_min.split("/").collect::<Vec<&str>>()[0],
+                    ip_max.split("/").collect::<Vec<&str>>()[0],
+                ));
+            }
         }
 
         ips

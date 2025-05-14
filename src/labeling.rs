@@ -1,10 +1,9 @@
 //! Label an ASN.1 syntax tree. Currently only RPKI labels are supported, which includes most X.509
 //! certificate extensions.
 
-
 use std::collections::HashMap;
 use crate::labeling::LabelName::*;
-use crate::tree_parser::Tree;
+use crate::tree_parser::{Tree, Types};
 
 pub fn parse_oid(data: &Vec<u8>) -> String {
     let mut oid = String::new();
@@ -127,42 +126,91 @@ fn label_fn_extension_subject_info_access_seq<'a>(id: usize, tree: &Tree) -> (La
 }
 
 /// Creates a dynamic [`LabelObject`] for the RFC3779 IPAddrBlocks certificate extension.
-fn label_fn_extension_ip_addr_blocks_seq(_id: usize, _tree: &Tree) -> (Label, Vec<LabelObject>) {
-    // let  mut labels = Vec::new();
-    //
-    // // IPAddrBlocks        ::= SEQUENCE OF IPAddressFamily
-    // let node_IpAddrBlocks = tree.get_node(id).unwrap();
-    //
-    // for child_id in &node_IpAddrBlocks.children {
-    //     // IPAddressFamily     ::= SEQUENCE {    -- AFI & optional SAFI --
-    //     //       addressFamily        OCTET STRING (SIZE (2..3)),
-    //     //       ipAddressChoice      IPAddressChoice }
-    //     let child_nod = tree.get_node(*child_id).unwrap();
-    //
-    //     let ip_afi = child_nod.children[0];
-    //     let ip_address_choice = child_nod.children[1];
-    //
-    //     let suffix = match tree.get_node(ip_afi).unwrap().data.as_slice() {
-    //         [0, 1] => "v4",
-    //         [0, 2] => "v6",
-    //         _ => "",
-    //     };
-    //
-    //     let ip_afi_l = LabelObject::label(Some(format!("ipAddrBlocksFamily{}", suffix)), vec![]);
-    //
-    //     if tree.get_node(ip_address_choice).unwrap().tag == 0 {
-    //
-    //     }
-    //
-    //     let mut child_counter = 0;
-    //     let mut child_labels = vec![];
-    //
-    //     for ip_address_choice_val in
-    //
-    // }
-    //
-    // a
-    (CertExtIpSeq.into(), vec![]) // FIXME
+fn label_fn_extension_ip_addr_blocks_seq(id: usize, tree: &Tree) -> (Label, Vec<LabelObject>) {
+    let  mut labels = Vec::new();
+
+    // IPAddrBlocks        ::= SEQUENCE OF IPAddressFamily
+    let node_seq = tree.get_node(id).unwrap();
+
+    for child_id in &node_seq.children {
+        // IPAddressFamily     ::= SEQUENCE {    -- AFI & optional SAFI --
+        //       addressFamily        OCTET STRING (SIZE (2..3)),
+        //       ipAddressChoice      IPAddressChoice }
+        let child_nod = tree.get_node(*child_id).unwrap();
+
+        let ip_afi = child_nod.children[0];
+        let ip_address_choice = child_nod.children[1];
+
+        let afi_arr = match tree.get_node(ip_afi).unwrap().data.as_slice() {
+            [a, b] => [0, 0, *a, *b],
+            [a, b, c] => [0, *a, *b, *c],
+            _ => panic!("invalid AFI length"), // FIXME panic
+        };
+        let ipv = u32::from_be_bytes(afi_arr);
+
+        let ip_afi_l = Label::new(CertExtIpAddressFamilyId, ipv as usize).into();
+
+        //    IPAddressChoice     ::= CHOICE {
+        //       inherit              NULL, -- inherit from issuer --
+        //       addressesOrRanges    SEQUENCE OF IPAddressOrRange }
+        let choice_nod = tree.get_node(ip_address_choice).unwrap();
+        let choice_children = match choice_nod.tag {
+            Types::NULL => vec![],
+            Types::Sequence => {
+                let mut child_labels = vec![];
+
+                let mut ctr_prefix = 0;
+                let mut ctr_range = 0;
+                for &id in choice_nod.children.iter() {
+                    // IPAddressOrRange    ::= CHOICE {
+                    //     addressPrefix        IPAddress,
+                    //     addressRange         IPAddressRange }
+                    //
+                    // IPAddressRange      ::= SEQUENCE {
+                    //     min                  IPAddress,
+                    //     max                  IPAddress }
+                    //
+                    // IPAddress           ::= BIT STRING
+                    let ip_address_or_ranges_mod = tree.get_node(id).unwrap();
+
+                    match ip_address_or_ranges_mod.tag {
+                        Types::TLV | Types::BitString => {
+                            child_labels.push(Label::new(CertExtIpAddressPrefix(ipv), ctr_prefix).into());
+                            ctr_prefix += 1;
+                        }
+                        Types::Sequence => {
+                            child_labels.push(LabelObject::label(
+                                Label::new(CertExtIpAddressRange(ipv), ctr_prefix),
+                                vec![
+                                    Label::new(CertExtIpAddressRangeMin(ipv), ctr_range).into(),
+                                    Label::new(CertExtIpAddressRangeMax(ipv), ctr_range).into(),
+                                ]
+                            ));
+                            ctr_range += 1;
+                        }
+                        _ => unreachable!("{:?}", ip_address_or_ranges_mod) // FIXME panic
+                    }
+                }
+
+                child_labels
+            }
+            _ => unreachable!(), // FIXME panic
+        };
+
+        let ip_addr_choice_l = LabelObject::label(
+            Label::new(CertExtIpAddressChoice, ipv as usize),
+            choice_children
+        );
+
+        labels.push(
+            LabelObject::label(
+                Label::new(CertExtIpAddressFamily, ipv as usize),
+                vec![ip_afi_l, ip_addr_choice_l],
+            )
+        );
+    }
+
+    (CertExtIpSeq.into(), labels)
 }
 
 fn label_fn_roa_ip_seq<'a>(id: usize, tree: &Tree) -> (Label, Vec<LabelObject>) {
@@ -477,7 +525,7 @@ pub enum LabelName {
     CertExtIpSeq,
     CertExtIpAddressFamily,
     CertExtIpAddressFamilyId,
-    CertExtIpAddressChoice(u32),
+    CertExtIpAddressChoice,
     CertExtIpAddressPrefix(u32),
     CertExtIpAddressRange(u32),
     CertExtIpAddressRangeMin(u32),
@@ -723,9 +771,7 @@ impl LabelName {
             CertExtIpSeq => "ipAddressDelegationSeq",
             CertExtIpAddressFamily => "ipAddressDelegationFamily",
             CertExtIpAddressFamilyId => "ipAddressDelegationFamilyId",
-            CertExtIpAddressChoice(ipv) if *ipv == 1 => "ipAddressDelegation_v4_ipAddressChoice",
-            CertExtIpAddressChoice(ipv) if *ipv == 2 => "ipAddressDelegation_v6_ipAddressChoice",
-            CertExtIpAddressChoice(_ipv) => "ipAddressDelegation_ipAddressChoice",
+            CertExtIpAddressChoice => "ipAddressDelegationIpAddrChoice",
             CertExtIpAddressPrefix(ipv) if *ipv == 1 => "ipAddressDelegation_v4_prefix",
             CertExtIpAddressPrefix(ipv) if *ipv == 2 => "ipAddressDelegation_v6_prefix",
             CertExtIpAddressPrefix(_ipv) => "ipAddressDelegation_prefix",
