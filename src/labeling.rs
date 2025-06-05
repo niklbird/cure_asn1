@@ -917,6 +917,9 @@ pub fn label_tree(typ: &str, tree: &Tree) -> Option<LabelObject> {
     } else if typ == "cert" || typ == "cer" {
         Some(label_certificate(typ))
     } 
+    else if typ == "crl"{
+        Some(label_certificate(typ))
+    }
     else if typ == "iroa" || typ == "rroa"{
         Some(label_iroa())
     }
