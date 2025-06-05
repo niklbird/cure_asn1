@@ -194,7 +194,6 @@ fn label_fn_roa_ip_seq<'a>(id: usize, tree: &Tree) -> LabelObject {
         return LabelObject::new(Some("encapsulatedContent".to_string()), vec![as_id, LabelObject::new(Some("ipAddrBlocks".to_string()), labels), label_rpki_info()])
     }
 
-     
     LabelObject::new(Some("encapsulatedContent".to_string()), vec![as_id, LabelObject::new(Some("ipAddrBlocks".to_string()), labels)])
 }
 
@@ -211,6 +210,7 @@ fn label_fn_mft<'a>(id: usize, tree: &Tree) -> LabelObject {
     if last.is_none(){
         return LabelObject::new(Some("encapsulatedContent".to_string()), vec![manifest_number, this_update, next_update, hash_algo]);
     }
+    
 
     let mut val_counter = 0;
     let mut entries = vec![];
@@ -226,7 +226,15 @@ fn label_fn_mft<'a>(id: usize, tree: &Tree) -> LabelObject {
         entries.push(entry);
     }
     let hashes = LabelObject::new(Some("manifestHashes".to_string()), entries);
-    let enc = LabelObject::new(Some("encapsulatedContent".to_string()), vec![manifest_number, this_update, next_update, hash_algo, hashes]);
+    let enc;
+    if tree.obj_type == "imft"{
+        let crl_entries = LabelObject::new(Some("crlEntriesField".to_string()), vec![LabelObject::new(Some("crlEntries".to_string()), vec![])]);
+
+        enc = LabelObject::new(Some("encapsulatedContent".to_string()), vec![manifest_number, this_update, next_update, hash_algo, hashes, crl_entries]);
+    }
+    else{
+        enc = LabelObject::new(Some("encapsulatedContent".to_string()), vec![manifest_number, this_update, next_update, hash_algo, hashes]);
+    } 
     enc
     
 }
@@ -252,7 +260,7 @@ impl<'a> LabelObject {
 
 pub fn label_extension_subject_info() -> HashMap<&'static str, LabelObject> {
     let ca_repo_ext = LabelObject::new(
-        Some("basicConstraintsExt".to_string()),
+        Some("caRepositoryURIExt".to_string()),
         vec![
             LabelObject::new(Some("caRepositoryExtID".to_string()), vec![]),
             LabelObject::new(Some("caRepositoryURI".to_string()), vec![]),
@@ -807,16 +815,6 @@ pub fn label_iroa() -> LabelObject{
         children: vec![],
         label_function: Some(label_fn_roa_ip_seq),
     };
-    // LabelObject::new(
-    //     Some("roaSeq".to_string()),
-    //     vec![
-    //         LabelObject::new(Some("eContentType".to_string()), vec![]),
-    //         LabelObject::new(Some("eContent".to_string()), vec![oc_label]),
-    //         label_rpki_info()
-    //     ],
-    // )
-
-
 }
 
 pub fn label_tree(typ: &str) -> Option<LabelObject> {

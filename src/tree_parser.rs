@@ -9,7 +9,8 @@ use std::{
 use crate::{
     asn1_parser::encode_asn1_length, labeling::{label_tree, LabelObject}, mutator::{self, Mutation}, prot, rpki_utils::{self, byt_to_in}
 };
-use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use chrono::{NaiveDateTime, TimeZone, Utc};
+use prost::Message;
 use rand::prelude::SliceRandom;
 use rand::Rng;
 
@@ -134,17 +135,26 @@ impl Token {
 
 
 
-    pub fn pretty_bitstring(&self) -> String{
+    pub fn pretty_bitstring(&self, just_info: bool) -> String{
         if self.info.contains("ipAddr"){
             if self.info.contains("6"){
+                if just_info{
+                    return rpki_utils::parse_ip(&self.data[1..].to_vec(), 2, self.data[0].into());
+                }
                 return format!("{} (IP {})", hex::encode(&self.data), rpki_utils::parse_ip(&self.data[1..].to_vec(), 2, self.data[0].into()));
             }
             else{
+                if just_info{
+                    return rpki_utils::parse_ip(&self.data[1..].to_vec(), 1, self.data[0].into());
+                }
                 return format!("{} (IP {})", hex::encode(&self.data), rpki_utils::parse_ip(&self.data[1..].to_vec(), 1, self.data[0].into()));
             }
         }
 
         if self.info.contains("signature"){
+            if just_info{
+                return format!("{}", hex::encode(&self.data));
+            }
             return format!("{} (Signature)", hex::encode(&self.data));
         }
 
@@ -173,9 +183,33 @@ impl Token {
     }
 
 
-
+    /// Returns: (What should be shown when clicked, what should be shown in overview, binary data for hex representation)
     pub fn to_string_pretty(&self) -> (String, (u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, Vec<u8>)){ 
         match self.tag_u{
+            0x01 => {
+                let tag_display = if self.tag_u == self.visual_tag[0] {
+                    "BOOLEAN".to_string()
+                } else {
+                    format!("[tag {} (original BOOLEAN)]", self.visual_tag[0])
+                };
+
+                let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
+
+                let len_display = format!("({} byte)", self.length);
+                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+
+                let display = if self.data[0] == 0xFF {
+                    "TRUE".to_string()
+                } else if self.data[0] == 0x00{
+                    "FALSE".to_string()
+                }
+                else{
+                    "TRUE (non-DER)".to_string()
+                };
+                let con_val = (hex::encode(&self.data), display, self.data.clone());
+                return (self.info.clone(), tag_val, len_val, con_val);
+
+            }
             0x30 | 0x50 => { // Sequence
                 let tag_display = if self.tag_u == self.visual_tag[0] {
                     "SEQUENCE".to_string()
@@ -299,7 +333,6 @@ impl Token {
                 return (self.info.clone(), tag_val, len_val, con_val);
             }
             0x0E | 0x2E => { // TIME
-                
                 let tag_display = if self.tag_u == self.visual_tag[0] {
                     "TIME".to_string()
                 } else {
@@ -390,9 +423,8 @@ impl Token {
                 let len_display = format!("({} bits)", (self.data.len() - 1) * 8 - self.data[0] as usize);
                 let len_val = (self.length, len_display, encode_asn1_length(self.length));
 
-                let encoded = self.pretty_bitstring();
-                let bs = vec_to_bin(&self.data);
-                let con_val = (bs.to_string(), encoded.to_string(), self.data.clone());
+                let encoded = self.pretty_bitstring(false);
+                let con_val = (self.pretty_bitstring(true), encoded.to_string(), self.data.clone());
                 return (self.info.clone(), tag_val, len_val, con_val);
             }   
             _ => {
@@ -470,7 +502,12 @@ impl Tree {
     }
 
     pub fn get_root(&self) -> &Token {
-        self.tokens.get(&self.root_id).unwrap()
+        let t = self.tokens.get(&self.root_id);
+        if t.is_none(){
+            println!("Was none {:?}", self.tokens.len());
+            panic!();
+        }
+        return t.unwrap();
     }
 
 
@@ -719,7 +756,6 @@ impl Tree {
         match id {
             Some(id) => {
                 if !self.tokens.contains_key(&id) {
-                    println!("Label {} does not exist", label);
                     return true;
                 }
                 return self.tokens.get(id).unwrap().manipulated;
@@ -733,6 +769,17 @@ impl Tree {
     pub fn set_node_manipulated(&mut self, id: usize, manipulated: bool) {
         self.tokens.get_mut(&id).unwrap().manipulated = manipulated;
     }
+
+    pub fn set_node_manipulated_by_label(&mut self, label: &str, manipulated: bool) {
+        let tok = self.get_node_by_label(label);
+        if tok.is_none(){
+            return;
+        }
+
+        let id = tok.unwrap().id;
+        self.tokens.get_mut(&id).unwrap().manipulated = manipulated;
+    }
+
 
     pub fn get_ancestors(&self, id: usize) -> Vec<&Token> {
         let mut ancestors = Vec::new();
@@ -879,9 +926,13 @@ impl Tree {
         tree.cur_index = start_index;
         tree.root_id = start_index;
         tree.create_tree(obj, None);
+
+        if tree.tokens.len() == 0{
+            return tree;
+        }
         tree.fix_sizes(false);
         
-        if typ == "".to_string(){
+        if typ == "".to_string() || typ == "unknown"{
             tree.obj_type = Tree::infer_type(&tree);
         }
         
@@ -985,6 +1036,9 @@ impl Tree {
         if self.additional_info.contains_key("havocc") {
             return self.additional_info.get("havocc").unwrap().clone();
         }
+        if self.tokens.len() == 0{
+            return vec![];
+        }
         let root = self.get_root();
         let mut data = self.encode_node(root);
         if self.additional_info.contains_key("min_size"){
@@ -996,8 +1050,26 @@ impl Tree {
         data
     }
 
-    pub fn encode_proto(&self) -> Vec<u8>{
-        prot::parsing::proto_from_roa(self)
+
+    pub fn encode_b64(&self) -> String {
+        let root = self.get_root();
+        let data = self.encode_node(root);
+        return base64::encode(data);
+    }
+
+    pub fn encode_proto(&self, typ: &str) -> Vec<u8>{
+        if typ == "roa" || typ == "iroa"{
+            return prot::parsing::proto_from_roa(self);
+        }
+        else if typ == "mft" || typ == "imft"{
+            let mft = prot::parsing::proto_from_mft(self, self);
+            let mut buffer = Vec::new();
+            mft.encode(&mut buffer).unwrap();
+            return buffer;
+        }
+        else{
+            panic!("Not supported {}", typ);
+        }        
     }
 
     pub fn label_tree(&mut self) {
@@ -1045,14 +1117,25 @@ impl Tree {
     @param mandatory_taint: If true, only tainted nodes will be adapted. If false, all nodes will be adapted.
      */
     pub fn fix_sizes(&mut self, mandatory_taint: bool) -> usize {
+        if self.tokens.len() == 0{
+            return 0;
+        }
+        
         let root_id = self.root_id;
+
         let (child_len_full, child_data_len) = self.fix_sizes_rec(&root_id, mandatory_taint);
         self.tokens.get_mut(&self.root_id).unwrap().set_length(child_data_len);
         return child_len_full;
     }
 
     pub fn fix_sizes_rec(&mut self, id: &usize, mandatory_taint: bool) -> (usize, usize) {
-        let children = self.tokens.get_mut(id).unwrap().children.clone();
+        let children = self.tokens.get_mut(id);
+        if children.is_none(){
+            // println!("None");
+            // println!("Error: There should be children here {:?}", self.encode_b64());
+            return (0, 0);
+        }
+        let children = children.unwrap().children.clone();
 
         let mut child_len = 0;
         for child in &children {
@@ -1080,6 +1163,15 @@ impl Tree {
         let final_len = child_len + own_len + asn1_len + tag_len;
 
         return (final_len, child_len + own_len);
+    }
+
+    pub fn encode_node_content_by_label(&self, label: &str) -> Vec<u8>{
+        let token = self.get_node_by_label(label);
+        if token.is_none(){
+            return vec![];
+        }
+
+        return self.encode_node_content(token.unwrap(), true);
     }
 
     pub fn encode_node_content(&self, token: &Token, content: bool) -> Vec<u8> {
@@ -1267,7 +1359,7 @@ impl Tree {
     pub fn get_node_by_label(&self, label: &str) -> Option<&Token> {
         let id = self.labels.get(label);
         match id {
-            Some(id) => Some(self.get_node(*id).unwrap()),
+            Some(id) => Some(self.get_node(*id)?),
             None => None,
         }
     }
@@ -1329,11 +1421,11 @@ impl Tree {
     pub fn set_element_by_label(&mut self, label: &str, element: Element, self_taint: bool, manipulated: bool) -> bool{
         let id = self.labels.get(label);
         if id.is_some() {
-            let id = id.unwrap();
+            let id = *id.unwrap();
 
             // First: Remove all children of the node (They are not needed anymore)
-            if self.tokens.get_mut(id).unwrap().children.len() > 0 {
-                self.get_offspring_ids(*id).iter().for_each(|x| {
+            if self.tokens.get_mut(&id).unwrap().children.len() > 0 {
+                self.get_offspring_ids(id).iter().for_each(|x| {
                     self.tokens.remove(x);
                 });
             }
@@ -1352,19 +1444,20 @@ impl Tree {
 
                 let mut new_token = token.clone();
                 if new_token.parent == new_root{
-                    new_token.parent = *id;
+                    new_token.parent = id;
                 }
+                self.labels.insert(new_token.info.clone(), new_token.id);
                 self.tokens.insert(new_token.id, new_token);
             }
 
             let mut replacing_token = tree.tokens[&new_root].clone();
-            replacing_token.id = *id;
-            replacing_token.parent = self.tokens[id].parent;
+            replacing_token.id = id;
+            replacing_token.parent = self.tokens[&id].parent;
             replacing_token.manipulated = manipulated;
             replacing_token.tainted = self_taint;
-            self.tokens.insert(*id, replacing_token);
+            self.tokens.insert(id, replacing_token);
 
-            self.taint_parents(*id);
+            self.taint_parents(id);
             return true;
         }
         return false;
@@ -1481,7 +1574,7 @@ fn int_to_hex(v: u8) -> u8 {
 
 
 fn vec_to_bin(bitstring: &Vec<u8>) -> String {
-    let bitstring = &bitstring[1..];
+    let bitstring = &bitstring[1..]; // Start at 1 because first byte contains offset
     bitstring.iter()
         .map(|byte| format!("{:08b}", byte)) // Convert each byte to an 8-bit binary string
         .collect::<Vec<String>>() // Collect into a vector of strings

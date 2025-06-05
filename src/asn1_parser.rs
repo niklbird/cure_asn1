@@ -24,7 +24,7 @@ pub fn create_element(tag: u8, length: usize, data: &[u8], children: Option<Vec<
     match tag {
         4 | 36 => {
             let value;
-            if children.is_some() {
+            if children.is_some() && children.as_ref().unwrap().len() == 1{
                 value = Some(Box::new(children.unwrap()[0].clone()));
             } else {
                 value = None;
@@ -67,6 +67,11 @@ pub fn create_element(tag: u8, length: usize, data: &[u8], children: Option<Vec<
     }
 }
 
+fn tag_is_constructed(tag: u8) -> bool {
+    tag & 0b0010_0000 != 0
+}
+
+
 pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<(Vec<u8>, usize, Vec<Element>), ASN1Error> {
     let mut content: Vec<u8> = Vec::new();
     let mut elements: Vec<Element> = Vec::new();
@@ -78,6 +83,8 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
         // println!("Data {:?}", &data[cursor..cursor + 10]);
 
         let tag = data[cursor];
+        let constructed = tag_is_constructed(tag);
+
         content.push(tag);
 
         cursor += 1;
@@ -93,7 +100,13 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
                     let len = encode_asn1_length(new_content.len());
                     content.extend(len);
 
-                    elements.push(create_element(tag, new_content.len(), &new_content, Some(children)));
+                    // De-construct constructed OctetStrings -> They are not required for DER
+                    if constructed && tag == 36{
+                        elements.extend(children);
+                    }
+                    else{
+                        elements.push(create_element(tag, new_content.len(), &new_content, Some(children)));
+                    }
 
                     content.extend(new_content);
 
@@ -265,11 +278,20 @@ pub fn convert_ber_to_der(data: &Vec<u8>) -> Result<Vec<u8>, ASN1Error> {
 
 pub fn parse_asn1_object(data: &Vec<u8>) -> Result<(Vec<u8>, Element), ASN1Error> {
     let (der, _, el) = proc_nested(data, 0, None)?;
+
     Ok((der, el[0].clone()))
 }
 
 pub fn parse_asn1_object_slim(data: &Vec<u8>) -> Result<Element, ASN1Error> {
+    if data.len() == 0{
+        return Err(ASN1Error::new("Data was empty".to_string()));
+    }
     let (_, _, el) = proc_nested(data, 0, None)?;
+    if data.len() == 0 || el.len() == 0 || el[0].get_child_amount() == 0{
+        println!("Error with data {}", base64::encode(data));
+        return Err(ASN1Error::new("Error".to_string()));
+    }
+
     Ok(el[0].clone())
 }
 

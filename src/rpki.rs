@@ -6,6 +6,7 @@ use crate::{
     tree_parser::Tree,
 };
 use base64::{prelude::BASE64_STANDARD, Engine};
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use rand::{seq::SliceRandom, thread_rng};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use regex::Regex;
@@ -25,9 +26,15 @@ pub fn parse_rpki_object(data: &Vec<u8>, typ: &ObjectType) -> Option<RpkiObject>
         println!("Error during parsing {:?}", root);
         return None;
     }
+    let root = root.unwrap();
+    if root.get_len() == 0{
+        return None;
+    }
 
-    let tree = Tree::generate_tree(root.unwrap(), typ.to_string());
-
+    let tree = Tree::generate_tree(root, typ.to_string());
+    if tree.tokens.len() == 0{
+        return None;
+    }
     Some(RpkiObject {
         content: tree,
         typ: typ.to_string(),
@@ -35,7 +42,7 @@ pub fn parse_rpki_object(data: &Vec<u8>, typ: &ObjectType) -> Option<RpkiObject>
 }
 
 
-
+#[derive(Clone)]
 pub struct RpkiObject {
     pub content: Tree,
     pub typ: String,
@@ -48,6 +55,47 @@ impl RpkiObject {
         RpkiObject { content, typ }
     }
 
+
+    pub fn set_notification_uri(&mut self, uri: &str){
+        self.content.set_data_by_label("rpkiNotifyURI", uri.as_bytes().to_vec(), true, true);
+        self.content.fix_sizes(true);
+    }
+
+    pub fn set_manifest_uri(&mut self, uri: &str){
+        self.content.set_data_by_label("rpkiManifestURI", uri.as_bytes().to_vec(), true, true);
+        self.content.fix_sizes(true);
+    }
+
+    pub fn set_crl_uri(&mut self, uri: &str){
+        self.content.set_data_by_label("crlDistributionPoint", uri.as_bytes().to_vec(), true, true);
+        self.content.fix_sizes(true);
+    }
+
+    pub fn set_mft_entries_raw(&mut self, entries: Vec<u8>){
+        self.content.set_data_by_label("manifestHashes", entries, true, false);
+        self.content.fix_sizes(true);
+    }
+
+    pub fn get_mft_entries_raw(&self) -> Vec<u8>{
+        self.content.encode_node_content_by_label("manifestHashes")
+    }
+
+    pub fn get_crl_entries_raw(&self) -> Vec<u8>{
+        self.content.encode_node_content_by_label("crlEntriesField")
+    }
+
+    pub fn set_crl_entries_raw(&mut self, data: Vec<u8>){
+        self.content.set_data_by_label("crlEntriesField", data, true, true);
+    } 
+
+
+    pub fn set_cert_repo_uri(&mut self, data: &str){
+        let re = self.content.set_data_by_label("caRepositoryURI", data.as_bytes().to_vec(), true, true);
+        self.content.fix_sizes(true);
+
+    }
+
+
     pub fn get_roa_vrps(&self) -> Option<Vec<String>> {
         let asn = self.get_roa_asn()?;
         let ips = self.get_roa_ips_string();
@@ -59,7 +107,7 @@ impl RpkiObject {
     }
 
     pub fn get_roa_asn(&self) -> Option<u64> {
-        let raw = self.content.get_raw_by_label("AS-ID");
+        let raw = self.content.get_raw_by_label("asID");
 
         if raw.is_none() {
             return None;
@@ -74,9 +122,37 @@ impl RpkiObject {
         Some(result)
     }
 
+    pub fn get_mft_entries(&self) -> Vec<(String, String)>{
+        let node = self.content.get_node_by_label("manifestHashes").unwrap();
+        let mut entries = vec![];
+        for child in &node.children {
+            let child_node = self.content.get_node(*child).unwrap();
+            let uri_id = child_node.children[0];
+            let uri = from_utf8(&self.content.tokens.get(&uri_id).unwrap().data)
+                .unwrap_or_default()
+                .to_string();
+
+            let hash_id = child_node.children[1];
+            let hash = from_utf8(&self.content.tokens.get(&hash_id).unwrap().data)
+                .unwrap_or_default()
+                .to_string();
+
+            entries.push((uri, hash));
+        }
+        entries
+    }
+
+    pub fn get_cert_mft_uri(&self) -> Option<String>{
+        // rpkiManifestURI
+        let data = self.content.get_raw_by_label("rpkiManifestURI")?;
+
+        Some(from_utf8(&data).unwrap_or_default().to_string())
+
+    }
+
     pub fn get_roa_ips_string(&self) -> Vec<String> {
         let mut ips = vec![];
-        let n = self.content.get_node_by_label("IpAddresses");
+        let n = self.content.get_node_by_label("ipAddrBlocks");
         if n.is_none() {
             return ips;
         }
@@ -162,11 +238,24 @@ impl RpkiObject {
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
 
+    pub fn get_encap_content(&self) -> Option<Vec<u8>> {
+        let data = self.content.get_node_by_label("encapsulatedContent")?;
+        let data = self.content.encode_node(data);
+        Some(data)
+    }
+
     pub fn get_cert_signed_uri(&self) -> Option<String> {
         let data = self.content.get_raw_by_label("signedObjectURI")?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
+
+    pub fn get_cert_aia(&self) -> Option<String> {
+        let data = self.content.get_raw_by_label("caIssuersURI")?;
+
+        Some(from_utf8(&data).unwrap_or_default().to_string())
+    }
+
 
     pub fn get_cert_aki(&self) -> Option<String> {
         let data = self.content.get_raw_by_label("authorityKeyIdentifier")?;
@@ -192,6 +281,51 @@ impl RpkiObject {
         }
         parse_oid(&data.unwrap())
     }
+
+    pub fn get_cert_validity_not_before(&self) -> Option<DateTime<Utc>>{
+        
+        let data = self.content.get_raw_by_label("notBefore")?;
+
+        let s = from_utf8(&data).unwrap_or_default().to_string();
+
+        Self::format_timestamp(&s)
+        
+    }
+
+    pub fn get_cert_validity_not_after(&self) -> Option<DateTime<Utc>>{
+        
+        let data = self.content.get_raw_by_label("notAfter")?;
+
+        let s = from_utf8(&data).unwrap_or_default().to_string();
+
+        Self::format_timestamp(&s)
+        
+    }
+
+    
+
+
+    fn format_timestamp(timestamp: &str) -> Option<DateTime<Utc>> {
+        if timestamp.len() != 13 || !timestamp.ends_with('Z') {
+            return None; // Invalid format
+        }
+
+        let year = 2000 + timestamp[0..2].parse::<i32>().ok()?; // Assuming 21st century
+        let month = timestamp[2..4].parse::<u32>().ok()?;
+        let day = timestamp[4..6].parse::<u32>().ok()?;
+        let hour = timestamp[6..8].parse::<u32>().ok()?;
+        let minute = timestamp[8..10].parse::<u32>().ok()?;
+        let second = timestamp[10..12].parse::<u32>().ok()?;
+
+        let naive_dt = NaiveDateTime::from_timestamp_opt(
+            Utc.with_ymd_and_hms(year, month, day, hour, minute, second).single()?.timestamp(),
+            0,
+        )?;
+
+        Some(naive_dt.and_utc())
+    }
+
+
 }
 
 

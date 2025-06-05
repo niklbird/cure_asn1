@@ -975,7 +975,6 @@ pub fn mutate_tlv(tree: &mut Tree, node_id: usize) -> TokenMutation {
 }
 
 pub fn mutate_octetstring(tree: &mut Tree, node_id: usize) -> TokenMutation {
-    // let node = tree.tokens.get_mut(&node_id).unwrap();
     let mut rng = rand::thread_rng();
     let random_number: u8 = rng.gen_range(0..1);
 

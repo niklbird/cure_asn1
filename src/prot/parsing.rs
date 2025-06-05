@@ -1,12 +1,19 @@
+/// Parsing and Creation of Protobuf RPKI Objects
+
+
+use chrono::TimeZone;
 use prost::Message;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::str::from_utf8;
 use prost_types::Timestamp;
+use chrono::Utc;
 
 use crate::rpki_utils::byt_to_in;
 use crate::tree_parser::Tree; 
-// Snapshot File
+
+
+
 #[derive(PartialEq, Message, Clone)]
 pub struct SnapshotFile { 
     #[prost(string, tag = "1")]
@@ -116,7 +123,7 @@ pub struct IpAndFam {
     #[prost(uint32, tag = "1")]
     pub fam: u32,
     #[prost(message, repeated, tag = "2")]
-    pub ips: Vec<Vec<u8>>,
+    pub ips: Vec<IpEntry>,
 }
 
 #[derive(PartialEq, Message, Clone)]
@@ -230,15 +237,51 @@ fn get_asn(tree: &Tree) -> u64{
 
 }
 
+fn parse_utc_time(timestamp: &Vec<u8>) -> Option<Timestamp>{
+    let timestamp = from_utf8(&timestamp).ok()?;
+    if timestamp.len() != 13 || !timestamp.ends_with('Z') {
+        // println!("Invalid format {}", timestamp);
+        return None; // Invalid format
+    }
+    // Some(Timestamp::from_str(timestamp).ok()?)
 
-pub fn get_crl_entries(_: &Tree) -> Vec<(u64, Timestamp)>{
-    // crl.get_node_by_label("crlEntries").unwrap().children.iter().map(|&x| {
-    //     let entry = &crl.tokens[&x];
-    //     let serial = byt_to_in(&crl.tokens[&entry.children[0]].data);
-    //     let time = Timestamp::from(crl.tokens[&entry.children[1]].data.clone());
-    //     (serial, time)
-    // }).collect()
-    return vec![];
+    let year = 2000 + timestamp[0..2].parse::<i32>().ok()?; // Assuming 21st century
+    let month = timestamp[2..4].parse::<u32>().ok()?;
+    let day = timestamp[4..6].parse::<u32>().ok()?;
+    let hour = timestamp[6..8].parse::<u32>().ok()?;
+    let minute = timestamp[8..10].parse::<u32>().ok()?;
+    let second = timestamp[10..12].parse::<u32>().ok()?;
+    let parsed = Utc.with_ymd_and_hms(year, month, day, hour, minute, second);
+    let parsed = parsed.single().unwrap();
+    Some(Timestamp{seconds: parsed.timestamp(), nanos: 0})
+    // let naive_dt = NaiveDateTime::from_timestamp_opt(
+    //     Utc.with_ymd_and_hms(year, month, day, hour, minute, second).single()?.timestamp(),
+    //     0,
+    // )?;
+
+
+    // Some(naive_dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+
+}
+
+pub fn get_crl_entries(crl: &Tree) -> Vec<(u64, Timestamp)>{
+    let mut had_error = false;
+    let data = crl.get_node_by_label("crlEntriesField").unwrap().children.iter().map(|&x| {
+        let entry = &crl.tokens[&x];
+        let serial = byt_to_in(&crl.tokens[&entry.children[0]].data);
+
+        let time = parse_utc_time(&crl.tokens[&entry.children[1]].data);
+        if time.is_none(){
+            had_error = true;
+            return (serial, Timestamp::default());
+        }
+        let time = time.unwrap();
+        (serial, time)
+    }).collect();
+    if had_error{
+        return vec![];
+    }
+    return data;
 
 }
 
@@ -265,6 +308,7 @@ pub fn proto_from_mft(mft: &Tree, crl: &Tree) -> Manifest{
         };
         manifest_hashes.push(hash);
     }
+    
     let manifest_hash = ManifestHashes{
         hash_algorithm: "sha256".to_string(),
         hash_list: manifest_hashes,
@@ -295,18 +339,71 @@ pub fn proto_from_mft(mft: &Tree, crl: &Tree) -> Manifest{
 }
 
 
-pub fn proto_from_roa(roa: &Tree) -> Vec<u8>{
-    println!("{:?}", roa);
-    let ip_raw = roa.get_raw_by_label("ipAddrv4_0").unwrap();
-    // let ip = IpEntry{
-    //     ip: ip_raw,
-    //     ml: None,
-    // };
+pub fn get_ips_from_tree(roa: &Tree) -> Vec<IpAndFam>{
+    let mut ips_and_fams = vec![];
 
-    let ip_and_fam = IpAndFam{
-        fam: 4,
-        ips: vec![ip_raw],
-    };
+    let blocks = roa.get_node_by_label("ipAddrBlocks").unwrap();
+    for child in &blocks.children{
+        let n = roa.tokens.get(&child).unwrap();
+        let fam_tok = n.children[0];
+        let fam;
+        if roa.tokens.get(&fam_tok).unwrap().data == [0,1]{
+            fam = 4;
+        }
+        else{
+            fam = 6;
+        }
+
+        let mut ips = vec![];
+
+        for ipblock in &roa.tokens.get(&n.children[1]).unwrap().children{
+            let no = roa.tokens.get(ipblock).unwrap();
+            let ip = roa.tokens.get(&no.children[0]).unwrap().data.clone();
+
+            let ml;
+            if no.children.len() > 1{
+                ml = Some(byt_to_in(&roa.tokens.get(&no.children[1]).unwrap().data) as u32)
+                // ml = Some(roa.tokens.get(&no.children[1]).unwrap().data[0] as u32);
+            }
+            else{
+                ml = None;
+            }
+
+            ips.push(IpEntry { ip, ml });
+        }
+        ips_and_fams.push(
+            IpAndFam{
+                fam,
+                ips
+            }
+        )
+    
+    }
+
+    if ips_and_fams.len() > 1{
+    // println!("Families {:?}", ips_and_fams.len());
+    }
+    ips_and_fams
+
+
+}
+
+pub fn proto_from_roa(roa: &Tree) -> Vec<u8>{
+    
+
+
+    let ip_and_fam = get_ips_from_tree(roa);
+
+    // let ip_raw = roa.get_raw_by_label("ipAddrv4_0").unwrap();
+    // // let ip = IpEntry{
+    // //     ip: ip_raw,
+    // //     ml: None,
+    // // };
+
+    // let ip_and_fam = IpAndFam{
+    //     fam: 4,
+    //     ips: vec![ip_raw],
+    // };
 
     let random_u64 = 42;
 
@@ -315,12 +412,12 @@ pub fn proto_from_roa(roa: &Tree) -> Vec<u8>{
         serial: random_u64,
         not_before: Some(Timestamp::date(2025, 1, 1).unwrap()),
         not_after: Some(Timestamp::date(2027, 1, 1).unwrap()),
-        ski: None,
+        ski: Some(vec![12,23, 12,23, 12,23, 12,23, 12,23, 12,23, 12,23, 12,23]),
     };
 
     let object_info = ROA{
         asn: get_asn(roa),
-        ip_and_fam: vec![ip_and_fam],
+        ip_and_fam,
         meta: Some(meta),
     };
 
