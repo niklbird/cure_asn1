@@ -31,10 +31,12 @@ pub fn parse_rpki_object(data: &Vec<u8>, typ: &ObjectType) -> Option<RpkiObject>
         return None;
     }
 
-    let tree = Tree::generate_tree(root, typ.to_string());
+    let mut tree = Tree::generate_tree(root, typ.to_string());
     if tree.tokens.len() == 0{
         return None;
     }
+    tree.fix_octetstrings(&typ.to_string());
+
     Some(RpkiObject {
         content: tree,
         typ: typ.to_string(),
@@ -42,7 +44,7 @@ pub fn parse_rpki_object(data: &Vec<u8>, typ: &ObjectType) -> Option<RpkiObject>
 }
 
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RpkiObject {
     pub content: Tree,
     pub typ: String,

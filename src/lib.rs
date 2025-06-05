@@ -8,3 +8,4 @@ pub mod rrdp;
 pub mod tree_parser;
 pub mod prot;
 pub mod rrdp_xml;
+pub mod tree_paths;

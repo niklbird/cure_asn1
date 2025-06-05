@@ -162,6 +162,12 @@ pub fn mutate_token(tree: &mut Tree, id: usize) -> TokenMutation {
         &Types::Set => TokenMutation::Set(mutate_sequence(tree, id)),
         &Types::OctetString => mutate_octetstring(tree, id),
         &Types::Implicit => mutate_implicit(tree, id),
+        &Types::BitString => mutate_tlv(tree, id),
+        &Types::NULL => mutate_tlv(tree, id),
+        &Types::ObjectIdentifier => mutate_tlv(tree, id),
+        &Types::Cont0 => mutate_tlv(tree, id),
+        &Types::Integer => mutate_tlv(tree, id),
+        &Types::IA5String => mutate_tlv(tree, id),
     };
 
     // Token can not be contained anymore if it was deleted from a sequence e.g.

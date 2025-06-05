@@ -499,6 +499,72 @@ pub fn label_extensions_rpki() -> HashMap<&'static str, LabelObject> {
     map
 }
 
+// Assuming typ == "crl"
+pub fn label_empty_crl() -> LabelObject {
+    let serial = LabelObject::new(Some("serialNumber".to_string()), vec![]);
+
+    let sig_alg_id = LabelObject::new(
+        Some("signatureAlgorithmField".to_string()),
+        vec![
+            LabelObject::new(Some("certificateSignatureAlgorithm".to_string()), vec![]),
+            LabelObject::new(Some("certificateSignatureAlgorithmParameters".to_string()), vec![]),
+        ],
+    );
+
+    let issuer = LabelObject::new(
+        Some("issuerField".to_string()),
+        vec![LabelObject::new(
+            Some("issuerFieldSet".to_string()),
+            vec![LabelObject::new(
+                Some("issuerFieldSet2".to_string()),
+                vec![
+                    LabelObject::new(Some("issuerOid".to_string()), vec![]),
+                    LabelObject::new(Some("issuerName".to_string()), vec![]),
+                ],
+            )],
+        )],
+    );
+
+    let ext = LabelObject {
+        label: Some("extensions".to_string()),
+        label_info: None,
+        children: vec![],
+        label_function: Some(label_fn_extensions),
+    };
+
+    let extensions = LabelObject::new(Some("extensionsField".to_string()), vec![ext]);
+    let certificate = {
+        LabelObject::new(
+            Some("certificate".to_string()),
+            vec![
+                serial,
+                sig_alg_id,
+                issuer,
+                LabelObject::new(Some("notBefore".to_string()), vec![]),
+                LabelObject::new(Some("notAfter".to_string()), vec![]),
+                extensions,
+            ],
+        )
+    };
+
+    let cert_choices = LabelObject::new(
+        Some("certificateChoices".to_string()),
+        vec![
+            certificate,
+            LabelObject::new(
+                Some("certificateSignatureAlgorithm".to_string()),
+                vec![
+                    LabelObject::new(Some("certificateSignatureAlgorithmOid".to_string()), vec![]),
+                    LabelObject::new(Some("certificateSignatureAlgorithmParameters".to_string()), vec![]),
+                ],
+            ),
+            LabelObject::new(Some("certificateSignature".to_string()), vec![]),
+        ],
+    );
+
+    return cert_choices;
+}
+
 pub fn label_certificate(typ: &str) -> LabelObject {
     let version = LabelObject::new(Some("versionImp".to_string()), vec![LabelObject::new(Some("version".to_string()), vec![])]);
 
@@ -817,7 +883,7 @@ pub fn label_iroa() -> LabelObject{
     };
 }
 
-pub fn label_tree(typ: &str) -> Option<LabelObject> {
+pub fn label_tree(typ: &str, tree: &Tree) -> Option<LabelObject> {
     if typ == "roa" || typ == "mft" || typ == "gbr" || typ == "asa" {
         let signed_data = LabelObject::new(
             Some("signedData".to_string()),
@@ -848,7 +914,7 @@ pub fn label_tree(typ: &str) -> Option<LabelObject> {
         );
 
         Some(content_info)
-    } else if typ == "cert" || typ == "cer" || typ == "crl" {
+    } else if typ == "cert" || typ == "cer" {
         Some(label_certificate(typ))
     } 
     else if typ == "iroa" || typ == "rroa"{
