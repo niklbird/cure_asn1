@@ -148,18 +148,18 @@ impl Token {
         self.manipulated = true;
     }
 
-    pub fn to_string_val(&self) -> (String, (u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, Vec<u8>)){
-        let tag_display = format!("{} [tag {}] ", &self.info, self.tag_u);
+    pub fn to_string_val(&self) -> (String, (u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, String, Vec<u8>)){
+        let tag_display = format!("{}", &self.visual_tag[0]);
         let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
-        let len_display = format!("({} byte)", self.length);
+        let len_display = format!("({} byte)", self.length); 
         let len_val = (self.length, len_display, encode_asn1_length(self.length));
 
         let con_display = format!("{}", hex::encode(&self.data));
         let try_utf8 = from_utf8(&self.data);
         let con_val = match try_utf8{
-            Ok(val) => (val.to_string(), val.to_string(), self.data.clone()),
-            Err(_) => (con_display.clone(), con_display, self.data.clone())
+            Ok(val) => (val.to_string(), val.to_string(), val.to_string(), self.data.clone()),
+            Err(_) => (con_display.clone(), con_display.clone(), con_display, self.data.clone())
         };
         return (self.info.clone(), tag_val, len_val, con_val);
 
@@ -168,19 +168,27 @@ impl Token {
 
 
     pub fn pretty_bitstring(&self, just_info: bool) -> String{
+        if self.data.len() == 0{
+            return "".to_string();
+        }
+
+
         if self.info.contains("ipAddr"){
-            if self.info.contains("6"){
-                if just_info{
-                    return rpki_utils::parse_ip(&self.data[1..].to_vec(), 2, self.data[0].into());
-                }
-                return format!("{} (IP {})", hex::encode(&self.data), rpki_utils::parse_ip(&self.data[1..].to_vec(), 2, self.data[0].into()));
+
+            let fam = if self.info.contains("6") || self.data.contains(&58){ // 58 == :
+                2
             }
             else{
-                if just_info{
-                    return rpki_utils::parse_ip(&self.data[1..].to_vec(), 1, self.data[0].into());
-                }
-                return format!("{} (IP {})", hex::encode(&self.data), rpki_utils::parse_ip(&self.data[1..].to_vec(), 1, self.data[0].into()));
+                1
+            };
+
+            let ip = rpki_utils::parse_ip(&self.data[1..].to_vec(), fam, self.data[0].into());
+            if just_info{
+                return ip;
             }
+
+            return format!("{} (0x{})", ip, hex::encode(&self.data));
+
         }
 
         if self.info.contains("signature"){
@@ -193,18 +201,38 @@ impl Token {
         vec_to_bin(&self.data)
     }
 
+    pub fn pretty_octetstring(&self) -> (String, String){
+        if self.data.is_empty(){
+            return ("".to_string(), "".to_string());
+        }
+        let human_readable = format!("0x{}", hex::encode(&self.data));
+
+        if self.info.to_lowercase().contains("family") || self.info.contains("AFI"){
+            if self.data == [0, 1]{
+                return ("IPv4 (0x01)".to_string(), human_readable);
+            }
+            else if self.data == [0, 2]{
+                return ("IPv6 (0x02)".to_string(), human_readable);
+            }
+        }
+        return (format!("0x{}", hex::encode(&self.data)), human_readable);
+        
+    }
+
 
     fn format_timestamp(&self, timestamp: &str) -> Option<String> {
-        if timestamp.len() != 13 || !timestamp.ends_with('Z') {
+        if (timestamp.len() != 13 && timestamp.len() != 15) || !timestamp.ends_with('Z') {
+            println!("Timestamp format invalid: {}", timestamp);
             return None; // Invalid format
         }
 
-        let year = 2000 + timestamp[0..2].parse::<i32>().ok()?; // Assuming 21st century
-        let month = timestamp[2..4].parse::<u32>().ok()?;
-        let day = timestamp[4..6].parse::<u32>().ok()?;
-        let hour = timestamp[6..8].parse::<u32>().ok()?;
-        let minute = timestamp[8..10].parse::<u32>().ok()?;
-        let second = timestamp[10..12].parse::<u32>().ok()?;
+        let offset = if timestamp.len() == 13 {0} else {2}; // If year is 4 digits, need 2 offset
+        let year = 2000 + timestamp[0 + offset .. 2 + offset].parse::<i32>().ok()?; // Assuming 21st century
+        let month = timestamp[2 + offset .. 4 + offset ].parse::<u32>().ok()?;
+        let day = timestamp[4 + offset .. 6 + offset].parse::<u32>().ok()?;
+        let hour = timestamp[6 + offset .. 8 + offset ].parse::<u32>().ok()?;
+        let minute = timestamp[8 + offset .. 10 + offset].parse::<u32>().ok()?;
+        let second = timestamp[10  + offset .. 12 + offset].parse::<u32>().ok()?;
 
         let naive_dt = NaiveDateTime::from_timestamp_opt(
             Utc.with_ymd_and_hms(year, month, day, hour, minute, second).single()?.timestamp(),
@@ -216,7 +244,7 @@ impl Token {
 
 
     /// Returns: (What should be shown when clicked, what should be shown in overview, binary data for hex representation)
-    pub fn to_string_pretty(&self) -> (String, (u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, Vec<u8>)){ 
+    pub fn to_string_pretty(&self) -> (String, (u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, String, Vec<u8>)){ 
         match self.tag_u{
             0x01 => {
                 let tag_display = if self.tag_u == self.visual_tag[0] {
@@ -227,18 +255,26 @@ impl Token {
 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
-                let len_display = format!("({} byte)", self.length);
+                let len_display = format!("({} byte)", self.visual_length);
                 let len_val = (self.length, len_display, encode_asn1_length(self.length));
 
                 let display = if self.data[0] == 0xFF {
-                    "TRUE".to_string()
+                    "true".to_string()
                 } else if self.data[0] == 0x00{
-                    "FALSE".to_string()
+                    "false".to_string()
                 }
                 else{
-                    "TRUE (non-DER)".to_string()
+                    "true (non-DER)".to_string()
                 };
-                let con_val = (hex::encode(&self.data), display, self.data.clone());
+
+                let human_readble = if self.data[0] > 0 {
+                    "true".to_string()
+                }
+                else{
+                    "false".to_string()
+                };
+
+                let con_val = (hex::encode(&self.data), display, human_readble, self.data.clone());
                 return (self.info.clone(), tag_val, len_val, con_val);
 
             }
@@ -252,10 +288,10 @@ impl Token {
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} nodes)", self.children.len());
-                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+                let len_val = (self.visual_length, len_display, encode_asn1_length(self.visual_length));
 
                 let con_display = format!("");
-                let con_val = ("".to_string(), con_display, vec![]);
+                let con_val = ("".to_string(), con_display.clone(), con_display, vec![]);
                 return (self.info.clone(), tag_val, len_val, con_val);
             }
             0x31 | 0x51 => { // Set
@@ -268,10 +304,10 @@ impl Token {
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} nodes)", self.children.len());
-                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+                let len_val = (self.length, len_display, encode_asn1_length(self.visual_length));
 
                 let con_display = format!("");
-                let con_val = ("".to_string(), con_display, vec![]);
+                let con_val = ("".to_string(), con_display.clone(), con_display, vec![]);
                 return (self.info.clone(), tag_val, len_val, con_val);
             }
             0x04 | 0x24 => { // Octetstring
@@ -283,10 +319,10 @@ impl Token {
                 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
-                let len_display = format!("({} byte)", self.length);
-                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+                let len_display = format!("({} byte)", self.visual_length);
+                let len_val = (self.visual_length, len_display, encode_asn1_length(self.visual_length));
 
-                let con_display = format!("{}", hex::encode(&self.data));
+                let (con_display, human_readable) = self.pretty_octetstring();
 
                 // If it has children -> Content will be included over children
                 let val = match self.children.len() > 0{
@@ -294,7 +330,7 @@ impl Token {
                     false => self.data.clone()
                 };
 
-                let con_val = (hex::encode(&val), con_display, val);
+                let con_val = (hex::encode(&val), con_display, human_readable, val);
                 return (self.info.clone(), tag_val, len_val, con_val);
             }
             0x05 => { // Null
@@ -306,11 +342,11 @@ impl Token {
 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
-                let len_display = format!("({} byte)", self.length);
-                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+                let len_display = format!("({} byte)", self.visual_length);
+                let len_val = (self.length, len_display, encode_asn1_length(self.visual_length));
 
                 let con_display = hex::encode(&self.data);
-                let con_val = (con_display.clone(), con_display, self.data.clone());
+                let con_val = (con_display.clone(), con_display.clone(), con_display, self.data.clone());
                 return (self.info.clone(), tag_val, len_val, con_val);
 
             }
@@ -323,15 +359,22 @@ impl Token {
                 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
-                let len_display = format!("({} byte)", self.length);
-                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+                let len_display = format!("({} byte)", self.visual_length);
+                let len_val = (self.visual_length, len_display, encode_asn1_length(self.visual_length));
 
-                let con_display = format!("{}", decode_oid_to_string(&self.data));
-                let con_val = (con_display.clone(), con_display, self.data.clone());
+                let oid= decode_oid_to_string(&self.data);
+                let map = rpki_oid_map();
+                let con_display = if map.contains_key(&oid.as_str()){
+                     format!("{} ({})", map[&oid.as_str()], oid)
+                }
+                else{
+                    oid.to_string()
+                };
+                let con_val = (con_display.clone(), con_display, oid.to_string(), self.data.clone());
                 return (self.info.clone(), tag_val, len_val, con_val);
 
             }
-            0x02 | 0x22 => { // Integer
+            0x02 => { // Integer
                 let tag_display = if self.tag_u == self.visual_tag[0] {
                     "INTEGER".to_string()
                 } else {
@@ -340,28 +383,29 @@ impl Token {
 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
-                let len_display = format!("({} byte)", self.length);
-                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+                let len_display = format!("({} byte)", self.visual_length);
+                let len_val = (self.visual_length, len_display, encode_asn1_length(self.visual_length));
 
                 let con_display = format!("{}", byt_to_in(&self.data));
-                let con_val = (con_display.clone(), con_display, self.data.clone());
+                let con_val = (con_display.clone(), con_display.clone(), con_display.clone(), self.data.clone());
                 return (self.info.clone(), tag_val, len_val, con_val);
 
             }
             0xA0..=0xA6 => { // Implicit
+                let counter = self.tag_u - 0xA0;
                 let tag_display = if self.tag_u == self.visual_tag[0] {
-                    "[Implicit]".to_string()
+                    format!("[{}]", counter)
                 } else {
-                    format!("[tag {} (original Implicit)]", self.visual_tag[0])
+                    format!("[tag {} (original [{}])]", self.visual_tag[0], counter)
                 };
 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} nodes)", self.children.len());
-                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+                let len_val = (self.visual_length, len_display, encode_asn1_length(self.visual_length));
 
                 let con_display = format!("");
-                let con_val = ("".to_string(), con_display, vec![]);
+                let con_val = ("".to_string(), con_display.clone(), con_display, vec![]);
                 return (self.info.clone(), tag_val, len_val, con_val);
             }
             0x0E | 0x2E => { // TIME
@@ -373,7 +417,7 @@ impl Token {
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = "".to_string();
-                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+                let len_val = (self.visual_length, len_display, encode_asn1_length(self.visual_length));
 
 
                 let data_dec = from_utf8(&self.data).unwrap_or_default();
@@ -385,80 +429,100 @@ impl Token {
                 let parsed = parsed.unwrap();
                 let con_display = parsed.format("%Y-%m-%d %H:%M:%S").to_string();
 
-                let con_val = (con_display.clone(), con_display, self.data.clone());
+                let con_val = (con_display.clone(), con_display.clone(), con_display, self.data.clone());
 
                 return (self.info.clone(), tag_val, len_val, con_val);
             }
             0x17 | 0x37 => { // UTC Time
                 let tag_display = if self.tag_u == self.visual_tag[0] {
-                    "UTCTime".to_string()
+                    "UTCTIME".to_string()
                 } else {
-                    format!("[tag {} (original UTCTime)]", self.visual_tag[0])
+                    format!("[tag {} (original UTCTIME)]", self.visual_tag[0])
                 };
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
-                let len_display = format!("({} bytes)", self.length);
-                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+                let len_display = format!("({} byte)", self.visual_length);
+                let len_val = (self.visual_length, len_display, encode_asn1_length(self.visual_length));
 
                 let data_dec = from_utf8(&self.data).unwrap_or_default();
 
                 let con_display = self.format_timestamp(data_dec).unwrap();
 
-                let con_val = (con_display.clone(), con_display, self.data.clone());
+                let con_val = (con_display.clone(), con_display.clone(), con_display, self.data.clone());
 
                 return (self.info.clone(), tag_val, len_val, con_val);
                 }
             0x18 | 0x38 => { // GeneralizedTime
                 let tag_display = if self.tag_u == self.visual_tag[0] {
-                    "GeneralizedTime".to_string()
+                    "GENERALIZEDTIME".to_string()
                 } else {
-                    format!("[tag {} (original GeneralizedTime)]", self.visual_tag[0])
+                    format!("[tag {} (original GENERALIZEDTIME)]", self.visual_tag[0])
                 };
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
-                let len_display = format!("({} bytes)", self.length);
-                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+                let len_display = format!("({} byte)", self.visual_length);
+                let len_val = (self.visual_length, len_display, encode_asn1_length(self.visual_length));
 
                 let data_dec = from_utf8(&self.data).unwrap_or_default();
 
                 let con_display = self.format_timestamp(data_dec).unwrap();
 
-                let con_val = (con_display.clone(), con_display, self.data.clone());
+                let con_val = (con_display.clone(), con_display.clone(), con_display, self.data.clone());
 
                 return (self.info.clone(), tag_val, len_val, con_val);
             }
             0x07 | 0x27 | 0x0C | 0x2C | 0x12..=0x16 | 0x32..=0x36 | 0x19 ..=0x1E | 0x39..=0x3E => { // String
                 let tag_display = if self.tag_u == self.visual_tag[0] {
-                    "String".to_string()
+                    "STRING".to_string()
                 } else {
-                    format!("[tag {} (original String)]", self.visual_tag[0])
+                    format!("[tag {} (original STRING)]", self.visual_tag[0])
                 };
 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
-                let len_display = self.data.len().to_string();
-                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+                let len_display = format!("({} byte)", self.data.len().to_string());
+                let len_val = (self.visual_length, len_display, encode_asn1_length(self.visual_length));
                 let tmp = hex::encode(&self.data);
                 let data_dec = from_utf8(&self.data).unwrap_or(&tmp);
 
-                let con_val = (data_dec.to_string(), data_dec.to_string(), self.data.clone());
+                let con_val = (data_dec.to_string(), data_dec.to_string(), data_dec.to_string(), self.data.clone());
                 return (self.info.clone(), tag_val, len_val, con_val);
             } 
             0x03 | 0x23 => { // BIT STRING
                 let tag_display = if self.tag_u == self.visual_tag[0] {
-                    "Bit String".to_string()
+                    "BITSTRING".to_string()
                 } else {
-                    format!("[tag {} (original Bit String)]", self.visual_tag[0])
+                    format!("[tag {} (original BITSTRING)]", self.visual_tag[0])
                 };
 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
-                let len_display = format!("({} bits)", (self.data.len() - 1) * 8 - self.data[0] as usize);
-                let len_val = (self.length, len_display, encode_asn1_length(self.length));
+                let len_display = if self.data.len() == 0{format!("(0 bit)")} else{format!("({} bit)", (self.data.len() - 1) * 8 - self.data[0] as usize)};
+                let len_val = (self.visual_length, len_display, encode_asn1_length(self.visual_length));
 
                 let encoded = self.pretty_bitstring(false);
-                let con_val = (self.pretty_bitstring(true), encoded.to_string(), self.data.clone());
+                let human_readable = self.pretty_bitstring(true);
+                let con_val = (human_readable.clone(), encoded.to_string(), human_readable, self.data.clone());
                 return (self.info.clone(), tag_val, len_val, con_val);
-            }   
+            }
+            0xD => { // Relative OID
+                // TODO Proper handling of relative OID
+                let tag_display = if self.tag_u == self.visual_tag[0] {
+                    "RELATIVE OID".to_string()
+                } else {
+                    format!("[tag {} (original BITSTRING)]", self.visual_tag[0])
+                };
+
+                let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
+
+
+                let len_display = format!("({} byte)", self.visual_length);
+                let len_val = (self.visual_length, len_display, encode_asn1_length(self.visual_length));
+
+                let con_display = format!("{}", hex::encode(&self.data));
+                let con_val = (con_display.clone(), con_display.clone(), con_display.clone(), self.data.clone());
+                return (self.info.clone(), tag_val, len_val, con_val);
+
+            }
             _ => {
                 return self.to_string_val();
             }
@@ -502,7 +566,7 @@ impl Tree {
         }
     }
 
-    pub fn add_node(&mut self, tag: u8, content: Vec<u8>, parent: usize, label: Option<String>) -> usize {
+    pub fn add_node(&mut self, tag: u8, content: Vec<u8>, parent: usize, label: Option<String>, child_position: Option<usize>) -> usize {
         let new_id = self.cur_index + 1;
         let mut token = Token::new(Types::from_type_id(tag), content.len(), content, parent, new_id, tag);
 
@@ -514,7 +578,20 @@ impl Tree {
             self.labels.insert(label.unwrap(), new_id);
         }
         self.tokens.insert(new_id, token);
-        self.tokens.get_mut(&parent).unwrap().children.push(new_id);
+        
+        if child_position.is_none(){
+            self.tokens.get_mut(&parent).unwrap().children.push(new_id);
+        }
+        else{
+            let child_position = child_position.unwrap();
+            let parent = self.tokens.get_mut(&parent).unwrap();
+            if child_position >= parent.children.len(){
+                parent.children.push(new_id);
+            }
+            else{
+                parent.children.insert(child_position, new_id);
+            }
+        }
 
         self.taint_parents(new_id);
 
@@ -591,7 +668,7 @@ impl Tree {
     Select a random token, but emphasize encapContentInfo since that is interesting for RPKI objects
      */
     pub fn splice_token_id(&self) -> usize {
-        let old_cure = false;
+        let old_cure = true;
         let probs = vec![0, 0, 0, 1];
 
         if probs.choose(&mut rand::thread_rng()).unwrap() == &1 && !old_cure {
@@ -934,6 +1011,10 @@ impl Tree {
         oids
     }
 
+    pub fn infer_own_type(&self)-> String{
+        Tree::infer_type(self)
+    }
+
     pub fn infer_type(tree: &Tree) -> String{
         let all_oids = tree.get_all_oids();
 
@@ -962,7 +1043,12 @@ impl Tree {
         if tree.get_root().children.len() == 3{
             let children = tree.get_root().children.clone();
             if tree.tokens.get(&children[0]).unwrap().children.len() > 3 && tree.tokens.get(&children[2]).unwrap().tag_u == 3 && tree.tokens.get(&children[2]).unwrap().data.len() > 255{
-                return "cer".to_string();
+                if all_oids.contains("1.3.6.1.5.5.7.48.10"){
+                    return "cer".to_string();
+                }
+                else{
+                    return "tls".to_string();
+                }
             }
         } 
 
@@ -1777,7 +1863,11 @@ impl Tree {
             "roa" => {
                 let paths = ROAPaths::init();
                 for p in [paths.cert_paths.ski, paths.sig_inf_paths.msg_dgst, paths.sig_inf_paths.signature] {
-                    let id = self.get_id_by_path(&p).unwrap();
+                    let id = self.get_id_by_path(&p);
+                    if id.is_none() {
+                        continue;
+                    }
+                    let id = id.unwrap();
                     let n = self.get_node(id).unwrap();
                     let data = self.encode_node_content(n, true);
                     self.deep_delete_children(id);
@@ -1913,4 +2003,66 @@ fn vec_to_bin(bitstring: &Vec<u8>) -> String {
         .map(|byte| format!("{:08b}", byte)) // Convert each byte to an 8-bit binary string
         .collect::<Vec<String>>() // Collect into a vector of strings
         .join("") // Join them together
+}
+
+
+
+pub fn rpki_oid_map() -> HashMap<&'static str, &'static str> {
+    HashMap::from([
+        // --- RFC 6482 (ROA) ---
+        ("1.2.840.113549.1.9.16.1.24", "RouteOriginAuthorization"),
+
+        // --- RFC 6486 (Manifest) ---
+        ("1.2.840.113549.1.9.16.1.26", "RpkiManifest"),
+
+        // --- RFC 6488 (Ghostbusters) ---
+        ("1.2.840.113549.1.9.16.1.35", "RpkiGhostbus"),
+        ("1.2.840.113549.1.9.16.1.49", "id-ct-ASPA"),
+
+        // --- RFC 6487 / RFC 3779 Extensions ---
+        ("1.3.6.1.5.5.7.1.7", "id-pe-ipAddrBlocks"),
+        ("1.3.6.1.5.5.7.1.8", "id-pe-autonomousSysIds"),
+        ("1.3.6.1.5.5.7.3.30", "id-kp-bgpsec-router"),
+        ("1.3.6.1.5.5.7.14.2", "certificatePolicy"),
+        ("1.3.6.1.5.5.7.14.3", "id-pe-autonomousSysIds"),
+        ("1.3.6.1.5.5.7.14.4", "id-pe-routerIdentifier"),
+
+        // --- Algorithms (RSA, ECDSA) ---
+        ("1.2.840.113549.1.1.1", "rsaEncryption"),
+        ("1.2.840.113549.1.1.11", "sha256WithRSAEncryption"),
+        ("1.2.840.113549.1.1.12", "sha384WithRSAEncryption"),
+        ("1.2.840.113549.1.1.13", "sha512WithRSAEncryption"),
+        ("1.2.840.10045.2.1", "ecPublicKey"),
+        ("1.2.840.10045.4.3.2", "ecdsa-with-SHA256"),
+        ("1.3.132.0.34", "secp384r1"),
+        ("2.16.840.1.101.3.4.2.1", "SHA256"),
+
+
+        // --- CMS / SignedData (RFC 6488 wrapper) ---
+        ("1.2.840.113549.1.7.2", "signedData"),
+        ("2.5.4.3", "commonName"),
+        ("2.5.4.5", "serialNumber"),
+        ("2.5.4.10", "organizationName"),
+        ("2.5.4.11", "organizationalUnitName"),
+        ("1.3.6.1.5.5.7.48.5",  "id-ad-caRepository"),
+        ("1.3.6.1.5.5.7.48.10", "id-ad-rpkiManifest"),
+        ("1.3.6.1.5.5.7.48.13", "id-ad-signedObject"),
+        ("1.3.6.1.5.5.7.48.11", "id-ad-rpkiNotify"),
+        ("1.3.6.1.5.5.7.48.2",  "id-ad-caIssuers"),
+        ("1.3.6.1.5.5.7.48.1",  "id-ad-ocsp"),
+
+        ("2.5.29.14",  "SubjectKeyIdentifierExtension"),
+        ("2.5.29.15",  "keyUsage"),
+        ("2.5.29.35",  "AuthorityKeyIdentifier"),
+        ("2.5.29.31",  "CRLDistributionPoints"),
+        ("1.3.6.1.5.5.7.1.1", "AuthorityInfoAccess"),
+        ("2.5.29.32",  "certificatePolicies"),
+        ("1.3.6.1.5.5.7.1.11", "SubjectInfoAccess"),
+        ("1.2.840.113549.1.9.3", "contentType"),
+        ("1.2.840.113549.1.9.4", "messageDigest"),
+        ("1.2.840.113549.1.9.5", "signingTime"),
+        ("1.3.6.1.5.5.7.2.1", "PKIX CPS pointer qualifier"),
+        ("2.5.4.6", "countryName"),
+        ("2.5.4.3", "commonName"),
+    ])
 }

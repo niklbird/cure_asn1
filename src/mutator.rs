@@ -97,7 +97,7 @@ pub fn mutate_tree(tree: &mut Tree, number_mutations: usize) {
 
     let likelihood_random = 0.2;
     for _ in 0..number_mutations {
-        let node_id;
+        let mut node_id;
         if tree.mutations.len() > 0 {
             let last_id = tree.mutations.last().unwrap().node_id;
             let random_res = random::<f32>();
@@ -112,7 +112,22 @@ pub fn mutate_tree(tree: &mut Tree, number_mutations: usize) {
         } else {
             node_id = tree.guided_token_id();
         }
-        let m = mutate_token(tree, node_id);
+        let mut m = mutate_token(tree, node_id);
+
+        // If no mutation -> Retry
+        if m.is_no_mutation() {
+            let attempt = 3;
+            for _ in 0..attempt {
+                node_id = tree.guided_token_id();
+            
+            m = mutate_token(tree, node_id);
+            if !m.is_no_mutation() {
+                break;
+            }}
+        }
+        else{
+            // println!("{:?} on {}", m, tree.tokens.get(&node_id).unwrap().info);
+        }
         tree.mutations.push(Mutation { mutation: m, node_id });
     }
     tree.fix_sizes(true);
@@ -1039,6 +1054,12 @@ pub enum TokenMutation {
     OctetString(ConstructedMutation),
     Implicit(ConstructedMutation),
     NoMutation,
+}
+
+impl TokenMutation{
+    pub fn is_no_mutation(&self) -> bool {
+        matches!(self, TokenMutation::NoMutation) || format!("{:?}", self).contains("NoMutation")
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]

@@ -1,4 +1,136 @@
+fn ipv6_to_octets(addr_str: &str) -> Result<Vec<u8>, String> {
+    // Handle "::" (zero compression)
+    let parts: Vec<&str> = addr_str.split("::").collect();
+    if parts.len() > 2 {
+        return Err("Invalid IPv6 address: too many '::'".into());
+    }
+
+    let head: Vec<&str> = if !parts[0].is_empty() {
+        parts[0].split(':').collect()
+    } else {
+        Vec::new()
+    };
+
+    let tail: Vec<&str> = if parts.len() == 2 && !parts[1].is_empty() {
+        parts[1].split(':').collect()
+    } else {
+        Vec::new()
+    };
+
+    // Number of missing 16-bit groups
+    let missing = 8usize.saturating_sub(head.len() + tail.len());
+    if parts.len() == 1 && head.len() != 8 {
+        return Err("Invalid IPv6 address: wrong number of groups".into());
+    }
+
+    // Build full list of groups
+    let mut groups = Vec::new();
+    groups.extend(head.into_iter());
+    for _ in 0..missing {
+        groups.push("0");
+    }
+    groups.extend(tail.into_iter());
+
+    if groups.len() != 8 {
+        return Err(format!("Invalid IPv6 address: got {} groups", groups.len()));
+    }
+
+    // Convert groups (hex) to octets
+    let mut octets = Vec::with_capacity(16);
+    for g in groups {
+        let val = u16::from_str_radix(g, 16)
+            .map_err(|_| format!("Invalid hex group '{}'", g))?;
+        octets.push((val >> 8) as u8);
+        octets.push((val & 0xff) as u8);
+    }
+
+    Ok(octets)
+}
+
+
+fn ipv4_to_octets(addr_str: &str) -> Result<Vec<u8>, String> {
+    // Split "addr/prefixlen"
+    let octets: Vec<&str> = addr_str.split('.').collect();
+    if octets.len() != 4 {
+        return Err("Invalid IPv4 address: wrong number of octets".into());
+    }
+
+    let mut bytes = Vec::with_capacity(4);
+    for o in octets {
+        let val = o.parse::<u8>().map_err(|_| format!("Invalid octet '{}'", o))?;
+        bytes.push(val);
+    }
+
+    Ok(bytes)
+}
+
+pub fn parse_ip_from_string(input: &str) -> Result<Vec<u8>, String>{
+    let raw_ip;
+    let p_len;
+    if input.contains("/"){
+        let s = input.split("/").collect::<Vec<&str>>();
+        if s.len() != 2{
+            return Err("Invalid IP format".to_string());
+        }
+        raw_ip = s[0];
+        p_len = s[1];
+    }
+    else{
+        raw_ip = input;
+        p_len = "";
+    }
+
+
+    let mut octets = if raw_ip.contains("."){
+        ipv4_to_octets(raw_ip).map_err(|e| e.to_string())?
+    } else if raw_ip.contains(":") {
+        ipv6_to_octets(raw_ip).map_err(|e| e.to_string())?
+    }
+    else{
+        return Err("Invalid IP format".to_string());
+    };
+
+    let prefix_length = if !p_len.is_empty() {
+        p_len.parse::<usize>().map_err(|_| "Invalid prefix length".to_string())?
+    }
+    else{
+        octets.len()
+    };
+
+
+
+    // Calculate padding
+    let total_bits = if octets.len() == 4{32} else {128};
+    if prefix_length > total_bits{
+        return Err("Prefix length exceeds total bits for IPv4".to_string());
+    }
+    let full_bytes = prefix_length / 8;
+    let padding_amount = prefix_length % 8;
+    if full_bytes < octets.len() && padding_amount > 0{
+        octets.truncate(full_bytes + 1);
+    }
+    if padding_amount > 0{
+        let mask = 0xFF << (padding_amount);
+        if full_bytes < octets.len(){
+            octets[full_bytes] = octets[full_bytes] & mask;
+        }
+    }
+
+    let mut output = vec![ 8 - padding_amount as u8];
+    output.extend(octets);
+
+   
+
+    Ok(output)
+
+
+}
+
 pub fn parse_ip(ip: &Vec<u8>, fam: u8, padding_amount: usize) -> String {
+    if ip.len() == 0{
+        return "".to_string();
+    }
+
     let mut ret = "".to_string();
     if fam == 1 {
         for i in 0..ip.len() {

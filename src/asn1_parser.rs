@@ -140,7 +140,7 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
 
                     if data.len() < cursor + len {
                         return Err(ASN1Error {
-                            message: "Length longer than Data".to_string(),
+                            message: "Length longer than Data1".to_string(),
                         });
                     }
 
@@ -171,7 +171,7 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
                     {
                         if data.len() < cursor + len {
                             return Err(ASN1Error {
-                                message: "Length longer than Data".to_string(),
+                                message: "Length longer than Data2".to_string(),
                             });
                         }
                         content.extend(&data[cursor..cursor + len]);
@@ -224,7 +224,7 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
 
                 if data.len() < cursor + len {
                     return Err(ASN1Error {
-                        message: "Length longer than Data".to_string(),
+                        message: "Length longer than Data3".to_string(),
                     });
                 }
 
@@ -236,10 +236,12 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
                 // +2 for the 0x00 0x00
                 cursor += len + 2;
             } else {
+                println!("cursor: {}, data.len(): {}", cursor, data.len());
                 let (len, len_size) = parse_length(&data[cursor..])?;
+                println!("len: {}, len_size: {}", len, len_size);
                 if data.len() < cursor + len_size + len {
                     return Err(ASN1Error {
-                        message: "Length longer than Data".to_string(),
+                        message: "Length longer than Data4".to_string(),
                     });
                 }
 
@@ -314,7 +316,7 @@ fn parse_length(data: &[u8]) -> Result<(usize, usize), ASN1Error> {
             length <<= 8;
             if 1 + i >= data.len() {
                 return Err(ASN1Error {
-                    message: "Length longer than Data".to_string(),
+                    message: "Length longer than Data5".to_string(),
                 });
             }
             length |= data[1 + i] as usize;

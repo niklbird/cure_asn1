@@ -389,9 +389,6 @@ pub fn get_ips_from_tree(roa: &Tree) -> Vec<IpAndFam>{
 }
 
 pub fn proto_from_roa(roa: &Tree) -> Vec<u8>{
-    
-
-
     let ip_and_fam = get_ips_from_tree(roa);
 
     // let ip_raw = roa.get_raw_by_label("ipAddrv4_0").unwrap();

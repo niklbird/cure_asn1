@@ -516,13 +516,45 @@ pub fn label_empty_crl() -> LabelObject {
         vec![LabelObject::new(
             Some("issuerFieldSet".to_string()),
             vec![LabelObject::new(
-                Some("issuerFieldSet2".to_string()),
+                Some("issuerFieldElement".to_string()),
                 vec![
                     LabelObject::new(Some("issuerOid".to_string()), vec![]),
                     LabelObject::new(Some("issuerName".to_string()), vec![]),
                 ],
+            ),
+            LabelObject::new(
+                Some("issuerFieldElement1".to_string()),
+                vec![
+                    LabelObject::new(Some("issuerOid1".to_string()), vec![]),
+                    LabelObject::new(Some("issuerName1".to_string()), vec![]),
+                ],
+            ),
+            LabelObject::new(
+                Some("issuerFieldElement2".to_string()),
+                vec![
+                    LabelObject::new(Some("issuerOid2".to_string()), vec![]),
+                    LabelObject::new(Some("issuerName2".to_string()), vec![]),
+                ],
             )],
-        )],
+        ),
+        LabelObject::new(
+            Some("issuerFieldSet1".to_string()),
+            vec![LabelObject::new(
+                Some("issuerFieldElement3".to_string()),
+                vec![
+                    LabelObject::new(Some("issuerOid3".to_string()), vec![]),
+                    LabelObject::new(Some("issuerName3".to_string()), vec![]),
+                ],
+            )]),
+            LabelObject::new(
+            Some("issuerFieldSet2".to_string()),
+            vec![LabelObject::new(
+                Some("issuerFieldElement4".to_string()),
+                vec![
+                    LabelObject::new(Some("issuerOid4".to_string()), vec![]),
+                    LabelObject::new(Some("issuerName4".to_string()), vec![]),
+                ],
+            )])],
     );
 
     let ext = LabelObject {
@@ -583,13 +615,45 @@ pub fn label_certificate(typ: &str) -> LabelObject {
         vec![LabelObject::new(
             Some("issuerFieldSet".to_string()),
             vec![LabelObject::new(
-                Some("issuerFieldSet2".to_string()),
+                Some("issuerFieldElement".to_string()),
                 vec![
                     LabelObject::new(Some("issuerOid".to_string()), vec![]),
                     LabelObject::new(Some("issuerName".to_string()), vec![]),
                 ],
+            ),
+            LabelObject::new(
+                Some("issuerFieldElement1".to_string()),
+                vec![
+                    LabelObject::new(Some("issuerOid1".to_string()), vec![]),
+                    LabelObject::new(Some("issuerName1".to_string()), vec![]),
+                ],
+            ),
+            LabelObject::new(
+                Some("issuerFieldElement2".to_string()),
+                vec![
+                    LabelObject::new(Some("issuerOid2".to_string()), vec![]),
+                    LabelObject::new(Some("issuerName2".to_string()), vec![]),
+                ],
             )],
-        )],
+        ),
+        LabelObject::new(
+            Some("issuerFieldSet1".to_string()),
+            vec![LabelObject::new(
+                Some("issuerFieldElement3".to_string()),
+                vec![
+                    LabelObject::new(Some("issuerOid3".to_string()), vec![]),
+                    LabelObject::new(Some("issuerName3".to_string()), vec![]),
+                ],
+            )]),
+            LabelObject::new(
+            Some("issuerFieldSet2".to_string()),
+            vec![LabelObject::new(
+                Some("issuerFieldElement4".to_string()),
+                vec![
+                    LabelObject::new(Some("issuerOid4".to_string()), vec![]),
+                    LabelObject::new(Some("issuerName4".to_string()), vec![]),
+                ],
+            )])],
     );
 
     let validity = LabelObject::new(
@@ -605,12 +669,53 @@ pub fn label_certificate(typ: &str) -> LabelObject {
         vec![LabelObject::new(
             Some("subjectFieldSeq".to_string()),
             vec![LabelObject::new(
-                Some("subjectFieldSeq2".to_string()),
+                Some("subjectFieldSeqElement".to_string()),
                 vec![
                     LabelObject::new(Some("subjectOid".to_string()), vec![]),
                     LabelObject::new(Some("subjectName".to_string()), vec![]),
                 ],
+                
+            ),
+            LabelObject::new(
+                Some("subjectFieldSeqElement1".to_string()),
+                vec![
+                    LabelObject::new(Some("subjectOid1".to_string()), vec![]),
+                    LabelObject::new(Some("subjectName1".to_string()), vec![]),
+                ],
+                
+            ),
+            LabelObject::new(
+                Some("subjectFieldSeqElement2".to_string()),
+                vec![
+                    LabelObject::new(Some("subjectOid2".to_string()), vec![]),
+                    LabelObject::new(Some("subjectName2".to_string()), vec![]),
+                ],
+                
             )],
+        ),
+        LabelObject::new(
+            Some("subjectFieldSeq2".to_string()),
+            vec![LabelObject::new(
+                Some("subjectFieldSeqElement2".to_string()),
+                vec![
+                    LabelObject::new(Some("subjectOid2".to_string()), vec![]),
+                    LabelObject::new(Some("subjectName2".to_string()), vec![]),
+                ],
+                
+            ),
+            ],
+        ),
+        LabelObject::new(
+            Some("subjectFieldSeq3".to_string()),
+            vec![LabelObject::new(
+                Some("subjectFieldSeqElement3".to_string()),
+                vec![
+                    LabelObject::new(Some("subjectOid3".to_string()), vec![]),
+                    LabelObject::new(Some("subjectName3".to_string()), vec![]),
+                ],
+                
+            ),
+            ],
         )],
     );
 
@@ -914,7 +1019,7 @@ pub fn label_tree(typ: &str, tree: &Tree) -> Option<LabelObject> {
         );
 
         Some(content_info)
-    } else if typ == "cert" || typ == "cer" {
+    } else if typ == "cert" || typ == "cer"|| typ=="tls"{
         Some(label_certificate(typ))
     } 
     else if typ == "crl"{

@@ -144,12 +144,78 @@ impl RpkiObject {
         entries
     }
 
+    pub fn get_cert_extension_oids(&self) -> Option<Vec<String>>{
+        let ext = self.content.get_node_by_label("extensions")?;
+        let mut oids = vec![];
+        for child in &ext.children{
+            let child_id = self.content.tokens[child].children[0];
+            oids.push(parse_oid(&self.content.tokens[&child_id].data));
+        }
+
+        Some(oids)
+    }
+
+
+    pub fn get_encoded_extensions(&self) -> Option<Vec<(Vec<u8>, bool, Vec<u8>)>>{
+        let ext = self.content.get_node_by_label("extensions")?;
+        let mut oids = vec![];
+
+        for child in &ext.children{
+            let child_node = self.content.get_node(*child).unwrap();
+            let child_id = child_node.children[0];
+
+            let oid = self.content.tokens.get(&child_id).unwrap().data.clone();
+            // let first_val = data[0]as u32 * 40 + data[1] as u32;
+            // let mut oid = vec![first_val];
+            // // let mut oid = vec![];
+            // let mut v = 0 as u32;
+            // for b in &data[2..]{
+            //     if b & 0x80 == 0{
+            //         v = (v << 7) | (*b as u32);
+            //         oid.push(v);
+            //         v = 0;
+            //         continue;
+            //     }
+            //     v += (*b & 0x7F) as u32;
+            // }
+            // break;
+            let (critical, data) = if child_node.children.len() == 3{
+                let crit_id = child_node.children[1];
+                let field_data = self.content.encode_node_content(&self.content.tokens.get(&child_node.children[2]).unwrap(), false).clone();
+                let crit_data = self.content.tokens.get(&crit_id).unwrap().data.clone();
+                if crit_data.len() == 1 && crit_data[0] == 0xFF{
+                    (true, field_data)
+                } else{
+                    (false, field_data)
+                }
+            } else{
+                (false, self.content.encode_node_content(&self.content.tokens.get(&child_node.children[1]).unwrap(), false).clone())
+            };
+
+            oids.push((oid, critical, data));
+
+        }
+
+        Some(oids)
+    }
+
+
+    pub fn get_signed_attr_oids(&self) -> Option<Vec<String>>{
+        let ext = self.content.get_node_by_label("signerSignedAttributesField")?;
+        let mut oids = vec![];
+        for child in &ext.children{
+            let child_id = self.content.tokens[child].children[0];
+            oids.push(parse_oid(&self.content.tokens[&child_id].data));
+        }
+
+        Some(oids)
+    }
+
     pub fn get_cert_mft_uri(&self) -> Option<String>{
         // rpkiManifestURI
         let data = self.content.get_raw_by_label("rpkiManifestURI")?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
-
     }
 
     pub fn get_roa_ips_string(&self) -> Vec<String> {
@@ -252,6 +318,18 @@ impl RpkiObject {
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
 
+    pub fn get_cert_signed_uri_repo(&self) -> Option<String> {
+        let data = self.content.get_raw_by_label("signedObjectURI")?;
+        let object_uri = from_utf8(&data).unwrap_or_default().to_string();
+        let repo_uri = object_uri.split("/").collect::<Vec<&str>>();
+        let repo_uri = repo_uri[0..repo_uri.len() - 1]
+            .join("/")
+            .to_string();
+        let repo_uri = format!("{}/", repo_uri);
+        Some(repo_uri)
+    }
+
+
     pub fn get_cert_aia(&self) -> Option<String> {
         let data = self.content.get_raw_by_label("caIssuersURI")?;
 
@@ -297,6 +375,16 @@ impl RpkiObject {
     pub fn get_cert_validity_not_after(&self) -> Option<DateTime<Utc>>{
         
         let data = self.content.get_raw_by_label("notAfter")?;
+
+        let s = from_utf8(&data).unwrap_or_default().to_string();
+
+        Self::format_timestamp(&s)
+        
+    }
+
+    pub fn get_mft_validity_not_after(&self) -> Option<DateTime<Utc>>{
+        
+        let data = self.content.get_raw_by_label("nextUpdate")?;
 
         let s = from_utf8(&data).unwrap_or_default().to_string();
 
@@ -573,6 +661,15 @@ impl Entry {
         res
     }
 
+    pub fn to_string_entry(&self) -> String {
+        format!(
+            "{},{},{}",
+            self.asn,
+            self.ip.ip_s,
+            self.ip.max_len.to_string()
+        )
+    }
+
     pub fn from_roa_str(raw: &str) -> Option<Entry> {
         if !raw.contains("=>") {
             return None;
@@ -595,7 +692,7 @@ impl Entry {
 
         let ip_raw = s[0];
         let ip_raw = ip_raw.trim();
-        let ip = ip_raw.split("/").nth(0).unwrap().to_string();
+        let ip = ip_raw.to_string();
 
         let prefix = ip_raw.split("/").nth(1).unwrap().parse::<u8>().unwrap();
 
@@ -754,7 +851,7 @@ impl VRPS {
     }
 
     pub fn from_file(file_uri: &str, rp_name: &str) -> VRPS {
-        let content = std::fs::read_to_string(file_uri).unwrap();
+        let content = std::fs::read_to_string(file_uri).unwrap_or_default();
         VRPS::from_content(&content, &rp_name)
     }
 
@@ -792,7 +889,7 @@ impl VRPS {
         }
     }
 
-    pub fn from_objects(objects: HashMap<String, Vec<u8>>, base_uri: &str) -> VRPS {
+    pub fn from_objects(objects: &HashMap<String, Vec<u8>>, base_uri: &str) -> VRPS {
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(6)
             .build()
@@ -832,15 +929,19 @@ impl VRPS {
 
             for ip in ips {
                 let ip = ip.to_string();
-                let ip = ip.split(",").collect::<Vec<_>>()[0];
+                let sp = ip.split(",").collect::<Vec<_>>();
+                let ip = sp[0].to_string();
+                let ml = sp[1].parse::<u8>().unwrap_or(0);
                 // let ip = s[0..s.len() - 1].join("/");
                 let s = format!("{} => {}", ip, asn);
                 let entry = Entry::from_roa_str(&s);
+
                 if entry.is_none() {
                     println!("Failed to parse {:?}", uri);
                     continue;
                 }
-                let entry = entry.unwrap();
+                let mut entry = entry.unwrap();
+                entry.ip.max_len = ml;
                 vrps.insert(entry);
             }
         }
@@ -873,6 +974,17 @@ impl VRPS {
         }
 
         (not_in_a, not_in_b)
+    }
+
+    pub fn intersect_many(&self, others: Vec<VRPS>) -> Vec<Entry> {
+        let mut own_entries = self.content.iter().collect::<HashSet<&Entry>>();
+        for other in &others {
+            let other_entries = other.content.iter().collect::<HashSet<&Entry>>();
+            own_entries.retain(|&entry| other_entries.contains(entry));
+        }
+
+        let intersection: Vec<Entry> = own_entries.into_iter().cloned().collect();
+        intersection
     }
 
     pub fn differences_many(&self, others: Vec<VRPS>) -> Vec<DiffEntry> {

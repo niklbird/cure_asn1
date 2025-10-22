@@ -1,4 +1,6 @@
-use crate::rrdp::{RRDPEntry, XMLDelta, XMLNotification, XMLSnapshot};
+use std::collections::HashMap;
+
+use crate::{rpki::RpkiObject, rrdp::{RRDPEntry, XMLDelta, XMLNotification, XMLSnapshot}};
 
 fn extract_attribute(tag: &str, attr: &str) -> Option<(String, usize)> {
     let search = format!(r#"{}=""#, attr);
@@ -98,9 +100,9 @@ pub fn parse_rrdp_snapshot(xml: &str) -> Result<XMLSnapshot, &'static str> {
             hash = None;
         }
 
-        let close_pos_rel = twoway::find_bytes(&xml_bytes[tag_end + 300..], close_tag)
+        let close_pos_rel = twoway::find_bytes(&xml_bytes[tag_end + 200..], close_tag)
             .ok_or("Missing </publish>")?;
-        let close_pos = tag_end + 300 + close_pos_rel;
+        let close_pos = tag_end + 200 + close_pos_rel;
 
         let base64_data = &xml[tag_end + 1..close_pos];
         let data = base64::decode(base64_data.trim()).map_err(|_| "Base64 decode failed")?;
@@ -160,6 +162,8 @@ pub fn parse_rrdp_delta(xml: &str) -> Result<XMLDelta, String> {
                     .ok_or("Missing </publish>")? + tag_end + 1;
 
                 let base64_data = &xml[tag_end + 1..close_pos];
+
+                let base64_data = base64_data.replace("\n", "");
                 let data = base64::decode(base64_data.trim()).map_err(|_| "Base64 decode failed")?;
 
                 let entry = RRDPEntry {
@@ -283,8 +287,38 @@ pub fn parse_rrdp_notification(xml: &str) -> Result<XMLNotification, &'static st
     })
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NotificationReport{
+    pub uri: String,
+    pub mappings: HashMap<String, Vec<usize>>,
+    pub results: HashMap<usize, NotificationAnalysis>,
+}
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+impl NotificationReport{
+    pub fn from_result(result: HashMap<NotificationAnalysis, Vec<String>>, base_uri: String) -> Self {
+        let mut mappings = HashMap::new();
+        let mut results = HashMap::new();
+
+        let mut i = 0;
+        for (key, value) in result {
+            for v in &value {
+                let entry = mappings.entry(v.clone()).or_insert(vec![]);
+                entry.push(i);
+            };
+            results.insert(i, key);
+            i += 1;
+        }
+
+        NotificationReport {
+            uri: base_uri,
+            mappings,
+            results,
+        }
+    }
+}
+
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash, serde::Serialize, serde::Deserialize)]
 pub struct NotificationAnalysis{
     pub header_order: Vec<String>,
     pub notification_name: String,
@@ -330,6 +364,9 @@ impl NotificationAnalysis{
 
     }
 }
+
+
+
 
 
 pub fn compare_uris_for_random(uri1: &str, uri2: &str) -> bool {
@@ -489,3 +526,5 @@ pub fn notification_analysis(xml: &str, fname: &str) -> Result<NotificationAnaly
     })
 
 }
+
+
