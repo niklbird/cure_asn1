@@ -1,3 +1,5 @@
+use chrono::DateTime;
+use chrono::Utc;
 /// Convert a DER Encoded ASN.1 X.509 Certificate into a Protofbuf equivalent
 /// 
 /// 
@@ -5,32 +7,258 @@
 /// 
 
 use prost::Message;
+use crate::asn1_parser::encode_asn1_length;
+use crate::prot::compile;
+use crate::prot::converter::asn1::asn1_pdu::length::Types;
+use crate::prot::converter::asn1::asn1_pdu::Pdu;
+use crate::prot::converter::asn1::asn1_pdu::ValueElement;
+use crate::prot::converter::asn1::asn1_universal_types::BitString;
 use crate::prot::converter::asn1::asn1_universal_types::RootNode;
+use crate::prot::converter::asn1::asn1_universal_types::UtcTime;
+use crate::prot::converter::asn1::x509_certificate::AlgorithmIdentifierSequence;
 use crate::prot::converter::asn1::x509_certificate::ExtensionSequence;
+use crate::prot::converter::asn1::x509_certificate::NotAfter;
+use crate::prot::converter::asn1::x509_certificate::NotBefore;
+use crate::prot::converter::asn1::x509_certificate::SignatureAlgorithm;
+use crate::prot::converter::asn1::x509_certificate::SignatureValue;
+use crate::prot::converter::asn1::x509_certificate::SubjectPublicKey;
+use crate::prot::converter::asn1::x509_certificate::SubjectPublicKeyInfo;
+use crate::prot::converter::asn1::x509_certificate::TimeChoice;
+use crate::prot::converter::asn1::x509_certificate::Validity;
+use crate::prot::converter::asn1::x509_certificate::ValiditySequence;
 use crate::prot::converter::x509_certificate::Extension;
 use crate::prot::converter::asn1::asn1_universal_types::Boolean;
 use crate::prot::converter::x509_certificate::RawExtension;
 use crate::prot::converter::x509_certificate::Extensions;
+use crate::prot::converter::asn1::asn1_universal_types::Integer;
+use crate::prot::converter::x509_certificate::Name;
+use crate::prot::converter::asn1::asn1_pdu::Identifier;
+use crate::prot::converter::asn1::asn1_pdu::TagNumber;
+use crate::prot::converter::asn1::asn1_pdu::Length;
+use crate::prot::converter::asn1::asn1_pdu::Value;
+use crate::prot::converter::x509_certificate::SubjectPublicKeyInfoSequence;
+use prost_types::Timestamp;
+
 
 use crate::rpki::RpkiObject;
 use crate::tree_parser::decode_oid_to_string;
-use crate::{prot::converter::asn1::x509_certificate, tree_parser::Tree};
+use crate::prot::converter::asn1::x509_certificate;
 use crate::prot::converter::asn1::asn1_universal_types::ObjectIdentifier;
 use crate::prot::converter::asn1::asn1_universal_types::OctetString;
 
 
 // use prost_build;
 
+
+fn create_pdu(tag: u8, content: &Vec<u8>, len: Vec<u8>) -> Pdu{
+    let new_tag = match tag{
+        48 | 49 => tag - 32,
+        _ => tag,
+    };
+
+    let encoding = match tag{
+        48 | 49 => 1, // constructed
+        _ => 0, // primitive
+    };
+    
+
+    let class = tag >> 6;
+    let new_tag = new_tag & 0b00011111;
+
+    Pdu{
+        id: Some(Identifier{id_class: Some(class as i32), encoding: Some(encoding), tag_num: Some(TagNumber{low_tag_num: Some(new_tag as i32), high_tag_num: None})}),
+        len: Some(Length{types: Some(Types::LengthOverride(len))}),
+        val: Some(Value{val_array: vec![
+            ValueElement{pdu: None, val_bits: Some(content.clone())}
+            ]}),
+    }
+}
+
+fn datetime_to_timechoice(value: &DateTime<Utc>) -> TimeChoice{
+    let timestamp_nb = Timestamp{
+        seconds: value.timestamp() as i64,
+        nanos: value.timestamp_subsec_nanos() as i32,
+    };
+
+    let utime_nb = UtcTime{
+        time_stamp: Some(timestamp_nb),
+    };
+
+    let tc_nb = TimeChoice{
+        utc_time: Some(utime_nb),
+        generalized_time: None,
+    };
+
+    tc_nb
+}
+
+
+pub fn der_bytes_to_proto(tag: u8, len: Vec<u8>, content: &Vec<u8>) -> Pdu{
+    create_pdu(tag, content, len)
+}
+
 pub fn convert_to_proto(tree: &RpkiObject) -> Vec<u8> {
+    let b = tree.content.encode();
+    return compile::der_to_proto(&b);
+    
+
+
     // Construct each protobuf sub-message systematically
     let mut x509 = x509_certificate::X509Certificate::default();
     let mut tbs = x509_certificate::TbsCertificate::default();
     let mut tbs_seq = x509_certificate::TbsCertificateSequence::default();
+
+    // Version
+
+    tbs_seq.version = Some(x509_certificate::Version {
+        value: Some(5),
+        pdu: None,
+    });
+
+    // // Serial
+    tbs_seq.serial_number = Some(x509_certificate::SerialNumber {
+        value: Some(Integer{val: Some(tree.get_cert_serial_raw().unwrap())}),
+        pdu: None,
+    });
+
+
+    // Issuer
+    let issuer_token = tree.content.get_node_by_label("issuerField").unwrap();
+    let bits = tree.content.encode_node_content(issuer_token, true);
+
+    
+    let issuer_name = create_pdu(issuer_token.tag_u, &bits, encode_asn1_length(issuer_token.length) );
+    tbs_seq.issuer = Some(Name{value: Some(issuer_name), pdu:None});
+
+    // Subject
+    let subject_token = tree.content.get_node_by_label("subjectField").unwrap();
+    let bits = tree.content.encode_node_content(subject_token, true);
+    let subject_name = create_pdu(issuer_token.tag_u, &bits, encode_asn1_length(subject_token.length) );
+    tbs_seq.subject = Some(Name{value: Some(subject_name), pdu:None});
+
+
+    // Subject Public Key Info
+    let algo_id = tree.content.get_node_by_label("subjectPublicKeyAlgorithm").unwrap();
+    let algo_pdu = create_pdu(algo_id.tag_u, &algo_id.data, encode_asn1_length(algo_id.length) );
+
+    let parameters = tree.content.get_node_by_label("subjectPublicKeyAlgorithmParameters");
+    let param_val = if parameters.is_some(){
+        let encoded = tree.content.encode_node_content(parameters.unwrap(), true);
+        if encoded.len() > 0 || true{
+            Some(create_pdu(parameters.unwrap().tag_u, &encoded, encode_asn1_length(parameters.unwrap().length)))
+        }
+        else{
+            None
+        }
+    }
+    else{
+        None
+    };
+
+
+    let algo_seq = AlgorithmIdentifierSequence{
+        object_identifier: Some(algo_pdu),
+        parameters: param_val,
+    };
+
+
+    let subkey = tree.content.get_raw_by_label("subjectPublicKey").unwrap();
+    let bs = BitString{
+        unused_bits: Some(subkey[0] as i32),
+        val: Some(subkey[1..].to_vec()),
+    };
+
+    let subkey = SubjectPublicKey{
+        value: Some(bs),
+        pdu: None,
+    };
+
+    let seq =SubjectPublicKeyInfoSequence{
+        algorithm_identifier: Some(algo_seq),
+        subject_public_key: Some(subkey),
+    };
+
+    let spki = SubjectPublicKeyInfo{
+        value: Some(seq),
+        pdu: None,
+    };
+
+    tbs_seq.subject_public_key_info = Some(spki);
+
+    // // Validity
+    let not_bef = datetime_to_timechoice(&tree.get_cert_validity_not_before().unwrap());
+    let not_aft = datetime_to_timechoice(&tree.get_cert_validity_not_after().unwrap());
+    let nb = NotBefore{
+        value: Some(not_bef),
+        pdu: None,
+    };
+    let na = NotAfter{
+        value: Some(not_aft),
+        pdu: None,
+    };
+
+    let seq = ValiditySequence{
+        not_before: Some(nb),
+        not_after: Some(na),
+    };
+    
+    tbs_seq.validity = Some(Validity{
+        value: Some(seq),
+        pdu: None,
+    });
+
+
+    // // Signature Algorithm
+    let algo_id = tree.content.get_node_by_label("certificateSignatureAlgorithmOid").unwrap();
+    let algo_pdu = create_pdu(algo_id.tag_u, &algo_id.data, encode_asn1_length(algo_id.length) );
+
+    let parameters = tree.content.get_node_by_label("certificateSignatureAlgorithmParameters");
+    let param_val = if parameters.is_some(){
+        let encoded = tree.content.encode_node_content(parameters.unwrap(), true);
+        if encoded.len() > 0 || true{
+            Some(create_pdu(parameters.unwrap().tag_u, &encoded, encode_asn1_length(parameters.unwrap().length)))
+        }
+        else{
+            None
+        }
+    }
+    else{
+        None
+    };
+
+
+
+    let id_seq = AlgorithmIdentifierSequence{
+        object_identifier: Some(algo_pdu),
+        parameters: param_val,
+    };
+
+    let sig_algo = SignatureAlgorithm{
+        value: Some(id_seq),
+        pdu: None,
+    };
+
+    tbs_seq.signature_algorithm = Some(sig_algo.clone());
+
+
+
     tbs_seq.extensions = Some(map_cert_extensions(tree));
 
     tbs.value = Some(tbs_seq);
 
     x509.tbs_certificate = Some(tbs);
+
+    let sig_val = tree.content.get_node_by_label("certificateSignature").unwrap();
+    let sig = SignatureValue{
+        value: Some(BitString{
+            unused_bits: Some(sig_val.data[0] as i32),
+            val: Some(sig_val.data[1..].to_vec()),
+        }),
+        pdu: None,
+    };
+
+    x509.signature_value = Some(sig);
+    x509.signature_algorithm = Some(sig_algo);
 
     let mut buffer = Vec::new();
     x509.encode(&mut buffer).unwrap();
@@ -46,7 +274,7 @@ pub fn map_tbs_certificate(tree: &RpkiObject){
 }
 
 #[derive(Debug)]
-enum OidError {
+pub enum OidError {
     Empty,
     IncompleteArc,
     FirstTooLarge,
@@ -98,8 +326,7 @@ fn decode_arc(encoded: &Vec<u8>) -> Vec<u32>{
 
 }
 
-
-fn der_oid_content_to_proto(content: &Vec<u8>) -> Result<ObjectIdentifier, OidError> {
+pub fn der_oid_content_to_proto(content: &Vec<u8>) -> Result<ObjectIdentifier, OidError> {
     let u = decode_oid_to_string(&content);
     let mut arcs = vec![];
     for part in u.split("."){
@@ -158,7 +385,7 @@ fn der_oid_content_to_proto(content: &Vec<u8>) -> Result<ObjectIdentifier, OidEr
         (Some(arcs[1] as i32), 2)
     } else {
 
-        ( None, 2) // Y = n0 - 80 but omitted in your schema
+        (None, 2) // Y = n0 - 80 but omitted in your schema
     };
 
     if let Some(si) = small {
@@ -174,7 +401,7 @@ fn der_oid_content_to_proto(content: &Vec<u8>) -> Result<ObjectIdentifier, OidEr
     }
 
     // There seems to be a bug in the tooling of Google? Will need to check, but for some reason I need to append the first arc in the end if there is no small identifier
-    if *root > 1{
+    if *root > 1 {
         rest.push(arcs[1] as u32);
 
     }
@@ -191,7 +418,7 @@ pub fn map_cert_extensions(tree: &RpkiObject) -> Extensions{
     for extension in extensions{
         let oid = der_oid_content_to_proto(&extension.0); //ObjectIdentifier { root: None, small_identifier: None, subidentifier: extension.0 };
 
-        let cont = OctetString{val: None};
+        let cont = OctetString{val: Some(extension.2)};
 
         let raw = RawExtension{
             extn_id: None,
@@ -212,6 +439,11 @@ pub fn map_cert_extensions(tree: &RpkiObject) -> Extensions{
         extension: None,
         extensions: proto_extensions.clone(),
     };
+
+    // let seq = ExtensionSequence{
+    //     extension: None,
+    //     extensions: vec![],
+    // };
 
     let ex = Extensions{
         pdu: None, 

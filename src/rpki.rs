@@ -336,6 +336,19 @@ impl RpkiObject {
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
 
+    pub fn get_cert_serial(&self) -> Option<u64> {
+        let data = self.content.get_raw_by_label("serialNumber")?;
+
+        Some(byt_to_in(&data))
+    }
+
+    pub fn get_cert_serial_raw(&self) -> Option<Vec<u8>> {
+        let data = self.content.get_raw_by_label("serialNumber")?;
+
+        Some(data.clone())
+    }
+
+
 
     pub fn get_cert_aki(&self) -> Option<String> {
         let data = self.content.get_raw_by_label("authorityKeyIdentifier")?;

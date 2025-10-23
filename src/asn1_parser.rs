@@ -236,9 +236,7 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
                 // +2 for the 0x00 0x00
                 cursor += len + 2;
             } else {
-                println!("cursor: {}, data.len(): {}", cursor, data.len());
                 let (len, len_size) = parse_length(&data[cursor..])?;
-                println!("len: {}, len_size: {}", len, len_size);
                 if data.len() < cursor + len_size + len {
                     return Err(ASN1Error {
                         message: "Length longer than Data4".to_string(),
@@ -293,7 +291,7 @@ pub fn parse_asn1_object_slim(data: &Vec<u8>) -> Result<Element, ASN1Error> {
     Ok(el[0].clone())
 }
 
-fn parse_length(data: &[u8]) -> Result<(usize, usize), ASN1Error> {
+pub fn parse_length(data: &[u8]) -> Result<(usize, usize), ASN1Error> {
     let first_byte = data[0];
     let mut length: usize = 0;
     let length_bytes;

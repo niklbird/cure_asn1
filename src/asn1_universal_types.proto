@@ -17,17 +17,27 @@
 // This proto represents the DER-encoding (X.690 (2015)) of the Universal class
 // types used by ASN.1. See X.680 (2015), Section 8.6, Table 1 for the
 // possible types.
-syntax = "proto2";
+syntax = "proto2"; 
 
 package asn1_universal_types;
 
 import "google/protobuf/timestamp.proto";
+import "asn1_pdu.proto";
 
 // This represents an ASN.1 Boolean, which takes on the value true or false
 // (X.690 (2015), 8.2).
 message Boolean {
   optional bool val = 1;
 }
+
+message Sequence {
+  repeated UniversalTypes val = 1;
+}
+
+message Set {
+  repeated UniversalTypes val = 1;
+}
+
 
 // This represents an ASN.1 OCTET STRING, which denotes an arbitrary string of
 // bits (X.690 (2015), 8.7).
@@ -133,4 +143,47 @@ enum SmallIdentifier {
   SI_VAL_37 = 37;
   SI_VAL_38 = 38;
   SI_VAL_39 = 39;
+}
+
+message Null {}  // no fields
+
+message String{
+  optional string val = 1;
+}
+
+message UTF8String   { optional string val = 1; }
+message IA5String    { optional string val = 1; }
+message PrintableString { optional string val = 1; }
+message TeletexString { optional string val = 1; }
+message UniversalString { optional string val = 1; }
+message BMPString     { optional string val = 1; }
+message Implicit {repeated UniversalTypes val = 1; optional uint32 tag = 2; optional uint32 len = 3;}
+
+message TLV {
+  optional uint32 tag = 1;
+  optional bytes len = 2;
+  optional bytes val = 3;
+}
+
+message UniversalTypes {
+  oneof type {
+    Integer         int_val         = 1;
+    Boolean         bool_val        = 2;
+    BitString       bit_string      = 3;
+    OctetString     octet_string    = 4;
+    Null            null_val        = 5;
+    ObjectIdentifier object_id      = 6;
+    UTF8String      utf8_string     = 7;
+    IA5String       ia5_string      = 8;
+    PrintableString printable_string = 9;
+    TeletexString   teletex_string  = 10;
+    UniversalString universal_string = 11;
+    BMPString       bmp_string      = 12;
+    UTCTime         utc_time        = 13;
+    GeneralizedTime generalized_time = 14;
+    Sequence        sequence        = 15;
+    Set             set             = 16;
+    Implicit        implicit        = 17;
+    TLV             tlv             = 18;
+  }
 }
