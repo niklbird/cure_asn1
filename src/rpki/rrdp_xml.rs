@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use crate::{rpki::RpkiObject, rrdp::{RRDPEntry, XMLDelta, XMLNotification, XMLSnapshot}};
+use crate::{rpki::rrdp::{RRDPEntry, XMLDelta, XMLNotification, XMLSnapshot}};
+use base64::{Engine as _, engine::general_purpose};
 
 fn extract_attribute(tag: &str, attr: &str) -> Option<(String, usize)> {
     let search = format!(r#"{}=""#, attr);
@@ -10,54 +11,6 @@ fn extract_attribute(tag: &str, attr: &str) -> Option<(String, usize)> {
     })
 }
 
-// pub fn parse_rrdp_snapshot(xml: &str) -> Result<XMLSnapshot, String> {
-//     let snapshot_start = xml.find("<snapshot")
-//         .ok_or("Missing <snapshot> tag")?;
-//     let snapshot_end = xml[snapshot_start..].find('>')
-//         .ok_or("Malformed <snapshot> tag")? + snapshot_start;
-
-//     let snapshot_tag = &xml[snapshot_start..=snapshot_end];
-
-//     let session_id = extract_attribute(snapshot_tag, "session_id")
-//         .ok_or("Missing session_id")?;
-//     let serial_str = extract_attribute(snapshot_tag, "serial")
-//         .ok_or("Missing serial")?;
-//     let serial = serial_str.parse::<u32>().map_err(|_| "Invalid serial")?;
-
-//     let mut entries = Vec::new();
-//     let mut pos = snapshot_end + 1;
-
-//     while let Some(publish_start) = xml[pos..].find("<publish") {
-//         let abs_start = pos + publish_start;
-//         let tag_end = xml[abs_start..].find('>').ok_or("Malformed <publish>")? + abs_start;
-//         let tag_str = &xml[abs_start..=tag_end];
-//         let uri = extract_attribute(tag_str, "uri").ok_or("Missing uri")?;
-//         let hash = extract_attribute(tag_str, "hash");
-
-//         let close_tag = "</publish>";
-//         let close_pos = xml[tag_end + 1..].find(close_tag)
-//             .ok_or("Missing </publish>")? + tag_end + 1;
-
-//         let base64_data = &xml[tag_end + 1..close_pos];
-//         let data = base64::decode(base64_data.trim()).map_err(|_| "Base64 decode failed")?;
-
-//         entries.push(RRDPEntry {
-//             uri,
-//             hash,
-//             data,
-//             typ: "publish".to_string(),
-//             serial: None,
-//         });
-
-//         pos = close_pos + close_tag.len();
-//     }
-
-//     Ok(XMLSnapshot {
-//         session_id,
-//         serial,
-//         entries,
-//     })
-// }
 use memchr::memchr;
 
 pub fn parse_rrdp_snapshot(xml: &str) -> Result<XMLSnapshot, &'static str> {
@@ -105,7 +58,7 @@ pub fn parse_rrdp_snapshot(xml: &str) -> Result<XMLSnapshot, &'static str> {
         let close_pos = tag_end + 200 + close_pos_rel;
 
         let base64_data = &xml[tag_end + 1..close_pos];
-        let data = base64::decode(base64_data.trim()).map_err(|_| "Base64 decode failed")?;
+        let data = general_purpose::STANDARD.decode(base64_data.trim()).map_err(|_| "Base64 decode failed")?;
 
         entries.push(RRDPEntry {
             uri,
@@ -164,7 +117,7 @@ pub fn parse_rrdp_delta(xml: &str) -> Result<XMLDelta, String> {
                 let base64_data = &xml[tag_end + 1..close_pos];
 
                 let base64_data = base64_data.replace("\n", "");
-                let data = base64::decode(base64_data.trim()).map_err(|_| "Base64 decode failed")?;
+                let data = general_purpose::STANDARD.decode(base64_data.trim()).map_err(|_| "Base64 decode failed")?;
 
                 let entry = RRDPEntry {
                     uri: uri.clone(),

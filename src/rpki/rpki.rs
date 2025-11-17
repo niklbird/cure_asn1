@@ -2,11 +2,11 @@ use std::str::from_utf8;
 
 use crate::{
     labeling::parse_oid,
-    rpki_utils::{byt_to_in, parse_ip},
+    rpki::rpki_utils::{byt_to_in, parse_ip},
     tree_parser::Tree,
 };
 use base64::{prelude::BASE64_STANDARD, Engine};
-use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use rand::{seq::SliceRandom, thread_rng};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use regex::Regex;
@@ -92,7 +92,7 @@ impl RpkiObject {
 
 
     pub fn set_cert_repo_uri(&mut self, data: &str){
-        let re = self.content.set_data_by_label("caRepositoryURI", data.as_bytes().to_vec(), true, true);
+        self.content.set_data_by_label("caRepositoryURI", data.as_bytes().to_vec(), true, true);
         self.content.fix_sizes(true);
 
     }
@@ -420,12 +420,12 @@ impl RpkiObject {
         let minute = timestamp[8..10].parse::<u32>().ok()?;
         let second = timestamp[10..12].parse::<u32>().ok()?;
 
-        let naive_dt = NaiveDateTime::from_timestamp_opt(
+        let naive_dt = DateTime::from_timestamp(
             Utc.with_ymd_and_hms(year, month, day, hour, minute, second).single()?.timestamp(),
             0,
         )?;
 
-        Some(naive_dt.and_utc())
+        Some(naive_dt.to_utc())
     }
 
 

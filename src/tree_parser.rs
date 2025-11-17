@@ -7,9 +7,10 @@ use std::{
 };
 
 use crate::{
-    asn1_parser::encode_asn1_length, labeling::{label_tree, LabelObject}, mutator::{self, Mutation}, prot, rpki_utils::{self, byt_to_in}, tree_paths::{CertificatePaths, MFTPaths, ROAPaths}
+    asn1_parser::encode_asn1_length, labeling::{label_tree, LabelObject}, mutator::{self, Mutation}, research::prot, rpki::rpki_utils::{self, byt_to_in}, tree_paths::{CertificatePaths, MFTPaths, ROAPaths}
 };
-use chrono::{NaiveDateTime, TimeZone, Utc};
+use base64::{Engine, prelude::BASE64_STANDARD};
+use chrono::{DateTime, TimeZone, Utc};
 use prost::Message;
 use rand::prelude::SliceRandom;
 use rand::Rng;
@@ -234,7 +235,7 @@ impl Token {
         let minute = timestamp[8 + offset .. 10 + offset].parse::<u32>().ok()?;
         let second = timestamp[10  + offset .. 12 + offset].parse::<u32>().ok()?;
 
-        let naive_dt = NaiveDateTime::from_timestamp_opt(
+        let naive_dt = DateTime::from_timestamp(
             Utc.with_ymd_and_hms(year, month, day, hour, minute, second).single()?.timestamp(),
             0,
         )?;
@@ -1188,7 +1189,7 @@ impl Tree {
     pub fn encode_b64(&self) -> String {
         let root = self.get_root();
         let data = self.encode_node(root);
-        return base64::encode(data);
+        return BASE64_STANDARD.encode(data);
     }
 
     pub fn encode_proto(&self, typ: &str) -> Vec<u8>{
@@ -1207,7 +1208,7 @@ impl Tree {
     }
 
     pub fn label_tree(&mut self) {
-        let label_obj = label_tree(&self.obj_type, &self);
+        let label_obj = label_tree(&self.obj_type);
 
         if label_obj.is_none() {
             // Unknown Object Type -> Cant label

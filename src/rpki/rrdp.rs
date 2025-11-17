@@ -4,7 +4,7 @@ use sha2::Digest;
 use std::io::Cursor;
 use xml::writer::{EmitterConfig, XmlEvent};
 
-use crate::rrdp_xml;
+use crate::rpki::rrdp_xml;
 
 
 pub fn random_uuid() -> String {

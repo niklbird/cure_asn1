@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::rrdp::{generate_random_bytes, random_uuid};
+use crate::rpki::rrdp::{generate_random_bytes, random_uuid};
 use prost::Message;
 use sha2::Digest;
 

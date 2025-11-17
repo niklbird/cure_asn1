@@ -1,4 +1,5 @@
 use std::fmt;
+use base64::{prelude::BASE64_STANDARD, Engine};
 
 pub fn is_nested(tag: u8) -> bool {
     if tag == 4 || tag == 4 + 32 {
@@ -284,7 +285,7 @@ pub fn parse_asn1_object_slim(data: &Vec<u8>) -> Result<Element, ASN1Error> {
     }
     let (_, _, el) = proc_nested(data, 0, None)?;
     if data.len() == 0 || el.len() == 0 || el[0].get_child_amount() == 0{
-        println!("Error with data {}", base64::encode(data));
+        println!("Error with data {}", BASE64_STANDARD.encode(data));
         return Err(ASN1Error::new("Error".to_string()));
     }
 

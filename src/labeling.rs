@@ -988,7 +988,7 @@ pub fn label_iroa() -> LabelObject{
     };
 }
 
-pub fn label_tree(typ: &str, tree: &Tree) -> Option<LabelObject> {
+pub fn label_tree(typ: &str) -> Option<LabelObject> {
     if typ == "roa" || typ == "mft" || typ == "gbr" || typ == "asa" {
         let signed_data = LabelObject::new(
             Some("signedData".to_string()),
