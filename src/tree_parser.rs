@@ -1,21 +1,39 @@
-/**
- * Construct a syntax tree from a parsed ASN.1 object.
- */
+///
+/// Construct a syntax tree from a parsed ASN.1 object.
+/// 
+
 use std::{
     collections::{HashMap, HashSet},
     fmt, str::from_utf8,
 };
 
 use crate::{
-    asn1_parser::encode_asn1_length, labeling::{label_tree, LabelObject}, mutator::{self, Mutation}, research::prot, rpki::rpki_utils::{self, byt_to_in}, tree_paths::{CertificatePaths, MFTPaths, ROAPaths}
+    asn1_parser::{self, encode_asn1_length}, labeling::{LabelObject, label_tree}, mutator::{self, Mutation}, rpki::rpki_utils::{self, byt_to_in}, tree_paths::{CertificatePaths, MFTPaths, ROAPaths}
 };
+
+#[cfg(feature = "research")]
+use research::prot;
 use base64::{Engine, prelude::BASE64_STANDARD};
 use chrono::{DateTime, TimeZone, Utc};
-use prost::Message;
 use rand::prelude::SliceRandom;
 use rand::Rng;
 
 use crate::asn1_parser::Element;
+
+/// Parse DER-encoded Data into an Abstract Syntax Tree
+pub fn parse_tree(data: &Vec<u8>, typ: &str) -> Option<Tree> {
+    let r = asn1_parser::parse_asn1_object_slim(data);
+    if r.is_err() {
+        println!("Error during parsing {:?}", r);
+        return None;
+    }
+    let root = r.unwrap();
+    let tree = Some(Tree::generate_tree(root, typ.to_string()));
+    tree
+}
+
+
+
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Copy)]
 pub enum Types {
@@ -173,10 +191,8 @@ impl Token {
             return "".to_string();
         }
 
-
         if self.info.contains("ipAddr"){
-
-            let fam = if self.info.contains("6") || self.data.contains(&58){ // 58 == :
+            let fam = if self.info.contains("6") || self.data.contains(&58){ // 58 == ":"
                 2
             }
             else{
@@ -522,7 +538,6 @@ impl Token {
                 let con_display = format!("{}", hex::encode(&self.data));
                 let con_val = (con_display.clone(), con_display.clone(), con_display.clone(), self.data.clone());
                 return (self.info.clone(), tag_val, len_val, con_val);
-
             }
             _ => {
                 return self.to_string_val();
@@ -1192,6 +1207,7 @@ impl Tree {
         return BASE64_STANDARD.encode(data);
     }
 
+    #[cfg(feature = "research")]
     pub fn encode_proto(&self, typ: &str) -> Vec<u8>{
         if typ == "roa" || typ == "iroa"{
             return prot::parsing::proto_from_roa(self);
