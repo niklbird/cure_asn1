@@ -95,7 +95,7 @@ pub fn mutate_tree(tree: &mut Tree, number_mutations: usize) {
         return;
     }
 
-    let likelihood_random = 0.2;
+    let likelihood_random = 0.7;
     for _ in 0..number_mutations {
         let mut node_id;
         if tree.mutations.len() > 0 {

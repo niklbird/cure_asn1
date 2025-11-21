@@ -970,12 +970,13 @@ pub fn label_signer_infos() -> LabelObject {
 pub fn label_rpki_info() -> LabelObject{
     LabelObject::new(Some("rpkiInfo".to_string()), vec![
         LabelObject::new(Some("serialNumber".to_string()), vec![]),
+        LabelObject::new(Some("authorityKeyIdentifier".to_string()), vec![]),
+        // LabelObject::new(Some("signedObjectURI".to_string()), vec![]),
         LabelObject::new(Some("validityPeriod".to_string()), vec![
             LabelObject::new(Some("notBefore".to_string()), vec![]),
             LabelObject::new(Some("notAfter".to_string()), vec![]),
         ]),
-        LabelObject::new(Some("authorityKeyIdentifier".to_string()), vec![]),
-        LabelObject::new(Some("signedObjectURI".to_string()), vec![]),
+
     ])
 }
 

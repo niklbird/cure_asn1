@@ -1040,6 +1040,8 @@ impl Tree {
         known_oids.insert("1.2.840.113549.1.9.16.1.35", "gbr");
         known_oids.insert("1.2.840.113549.1.9.16.1.49", "asa");
 
+        known_oids.insert("1.2.840.113549.1.9.16.1.44", "iroa");
+        known_oids.insert("1.2.840.113549.1.9.16.1.46", "imft");
 
 
         if all_oids.contains("1.2.840.113549.1.7.2"){ // SignedData
@@ -2028,9 +2030,13 @@ pub fn rpki_oid_map() -> HashMap<&'static str, &'static str> {
     HashMap::from([
         // --- RFC 6482 (ROA) ---
         ("1.2.840.113549.1.9.16.1.24", "RouteOriginAuthorization"),
+        ("1.2.840.113549.1.9.16.1.44", "iRouteOriginAuthorization"),
+
 
         // --- RFC 6486 (Manifest) ---
         ("1.2.840.113549.1.9.16.1.26", "RpkiManifest"),
+        ("1.2.840.113549.1.9.16.1.46", "iRpkiManifest"),
+
 
         // --- RFC 6488 (Ghostbusters) ---
         ("1.2.840.113549.1.9.16.1.35", "RpkiGhostbus"),

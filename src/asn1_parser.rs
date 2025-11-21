@@ -445,7 +445,7 @@ impl Element {
             Element::Sequence(seq) => seq.value.len(),
             Element::Set(set) => set.value.len(),
             Element::TLV(_) => 0,
-            Element::OctetString(_) => 0,
+            Element::OctetString(oc) => oc.value.is_some().then(|| 1).unwrap_or(0),
             Element::Implicit(imp) => imp.value.len(),
         }
     }
@@ -464,8 +464,8 @@ impl Element {
         match self {
             Element::Sequence(seq) => seq.value.push(child),
             Element::Set(set) => set.value.push(child),
-            Element::TLV(_) => (),
-            Element::OctetString(_) => (),
+            Element::TLV(_) => println!("Cannot add child to TLV"),
+            Element::OctetString(_) => println!("Cannot add child to OctetString"),
             Element::Implicit(imp) => imp.value.push(child),
         }
     }
