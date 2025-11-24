@@ -1,6 +1,5 @@
-/*
-Label an ASN.1 syntax tree. Currently only RPKI labels are supported, which includes most X.509 certificate extensions.
-*/
+/// Label an ASN.1 syntax tree. Currently only RPKI labels are supported, which includes most X.509 certificate extensions.
+
 
 use std::collections::HashMap;
 
@@ -45,9 +44,7 @@ impl LabelInfo {
     }
 }
 
-/*
-The following functions generate dynamic labels for fields that are not statically defined.
-*/
+/// The functions generate dynamic labels for fields that are not statically defined.
 fn label_fn_encoded_content<'a>(id: usize, tree: &Tree) -> LabelObject {
     let children = label_enc_content_inner(&tree.obj_type);
     let c = &tree.get_node(id).unwrap().children;
@@ -795,14 +792,6 @@ pub fn label_certificate(typ: &str) -> LabelObject {
 }
 
 pub fn label_tree_roa() -> LabelObject {
-    // let ip_field = LabelObject::new(
-    //     Some("ipAddrBlocksField".to_string()),
-    //     vec![LabelObject::new(
-    //         Some("ipAddrBlocksOutSeq".to_string()),
-    //         vec![LabelObject::new(Some("ipAddrBlocks".to_string()), vec![])],
-    //     )],
-    // );
-
     LabelObject{
         label: Some("encapsulatedContent".to_string()),
         label_info: None,
@@ -971,12 +960,10 @@ pub fn label_rpki_info() -> LabelObject{
     LabelObject::new(Some("rpkiInfo".to_string()), vec![
         LabelObject::new(Some("serialNumber".to_string()), vec![]),
         LabelObject::new(Some("authorityKeyIdentifier".to_string()), vec![]),
-        // LabelObject::new(Some("signedObjectURI".to_string()), vec![]),
         LabelObject::new(Some("validityPeriod".to_string()), vec![
             LabelObject::new(Some("notBefore".to_string()), vec![]),
             LabelObject::new(Some("notAfter".to_string()), vec![]),
         ]),
-
     ])
 }
 

@@ -1,7 +1,9 @@
+/// This file remains a TODO: Alligning the field names with the RFC ASN.1 definitions
+
 
 // CMS SignedData labels
 
-const signedData: &'static str = "SignedData";
+const signedData: &'static str = "signedData";
 const version: &'static str = "version";
 const digestAlgorithms: &'static str = "digestAlgorithms";
 const encapContentInfo: &'static str = "encapContentInfo";
@@ -68,7 +70,7 @@ const ipAddrExtensions: &'static str = "ipAddrBlocksExtension";
 
 
 
-const RouteOriginAuthorization: &'static str = "RouteOriginAuthorization";
+const RouteOriginAuthorization: &'static str = "routeOriginAuthorization";
 const asID: &'static str = "asID";
 const ipAddrBlocks: &'static str = "ipAddrBlocks";
 const ROAIPAddressFamily: &'static str = "roaIPAddressFamily";
@@ -81,7 +83,7 @@ const maxLength: &'static str = "maxLength";
 const address: &'static str = "address";
 
 
-const Manifest: &'static str = "Manifest";
+const Manifest: &'static str = "manifest";
 const manifestNumber: &'static str = "manifestNumber";
 const thisUpdate: &'static str = "thisUpdate";
 const nextUpdate: &'static str = "nextUpdate";

@@ -37,27 +37,31 @@ pub fn new_snapshot_and_notification(
     publish: Vec<(String, Vec<u8>)>,
     base_rrdp_dir: (&str, &str),
     domain: &str,
+    irpki: bool, 
 ) -> (String, Vec<u8>, String, Vec<u8>) {
     let serial = 1;
 
     let session_id = random_uuid();
     let random = generate_random_bytes();
+    let suffix = if irpki {".ixml"} else{".xml"};
 
     let base_uri = format!("{}{}/{}", "https://", domain, base_rrdp_dir.0);
     let snapshot_uri = format!(
-        "{}{}/{}/{}/snapshot.xml",
+        "{}{}/{}/{}/snapshot{}",
         &base_uri,
         &session_id,
         serial.to_string(),
-        random
+        random,
+        suffix
     );
-    let notification_uri_l = format!("{}notification.xml", base_rrdp_dir.1);
+    let notification_uri_l = format!("{}notification{}", base_rrdp_dir.1, suffix);
     let snapshot_uri_l = format!(
-        "{}{}/{}/{}/snapshot.xml",
+        "{}{}/{}/{}/snapshot{}",
         base_rrdp_dir.1,
         &session_id,
         serial.to_string(),
-        random
+        random,
+        suffix
     );
 
     let snap = create_snapshot(serial, &session_id, publish).unwrap();
@@ -169,7 +173,6 @@ pub fn create_snapshot(
     serial: u32,
     session_id: &str,
     publishes: Vec<(String, Vec<u8>)>,
-    // withdraws: Vec<String>,
 ) -> xml::writer::Result<Vec<u8>> {
     let mut output = Cursor::new(Vec::new());
     let mut writer = EmitterConfig::new()
@@ -189,11 +192,6 @@ pub fn create_snapshot(
         writer.write(XmlEvent::characters(&BASE64_STANDARD.encode(data)))?;
         writer.write(XmlEvent::end_element())?;
     }
-
-    // for uri in withdraws {
-    //     writer.write(XmlEvent::start_element("withdraw").attr("uri", &uri))?;
-    //     writer.write(XmlEvent::end_element())?;
-    // }
 
     writer.write(XmlEvent::end_element())?;
 
