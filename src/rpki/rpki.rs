@@ -622,15 +622,24 @@ pub fn ipstring_to_bytes(ip: &str, family: &IPType) -> Vec<u8> {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Metadata {
-    counts: u32,
+    // counts: u32,
     generated: u64,
-    valid: u64,
+    // valid: u64,
+    generatedTime: String,
 }
+
+// #[derive(Serialize, Deserialize, Debug)]
+// pub struct JsonRoa {
+//     pub prefix: String,
+//     pub max_length: u8,
+//     pub asn: String,
+//     pub ta: String,
+// }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct JsonRoa {
     pub prefix: String,
-    pub max_length: u8,
+    pub maxLength: u8,
     pub asn: String,
     pub ta: String,
 }
@@ -785,7 +794,7 @@ impl Entry {
             ip_s: ip.clone(),
             ip: ipstring_to_bytes(&ip, &family),
             prefix,
-            max_len: roa.max_length,
+            max_len: roa.maxLength,
             typ: family,
         };
 
@@ -1052,5 +1061,15 @@ impl VRPS {
             }
         }
         return false;
+    }
+
+    pub fn contains_entry_prefix(&self, prefix: &str) -> Vec<u32> {
+        let mut ret_asns = vec![];
+        for con in &self.content {
+            if con.ip.ip_s == prefix {
+                ret_asns.push(con.asn);
+            }
+        }
+        return ret_asns;
     }
 }

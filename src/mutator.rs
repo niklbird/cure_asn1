@@ -95,12 +95,13 @@ pub fn mutate_tree(tree: &mut Tree, number_mutations: usize) {
         return;
     }
 
-    let likelihood_random = 0.7;
+    let likelihood_random = 0.4;
     for _ in 0..number_mutations {
         let mut node_id;
         if tree.mutations.len() > 0 {
             let last_id = tree.mutations.last().unwrap().node_id;
             let random_res = random::<f32>();
+
             if random_res < likelihood_random
                 || !tree.tokens.contains_key(&last_id)
                 || tree.mutations.last().unwrap().get_mutation_string().contains("NoMutation")
@@ -112,6 +113,7 @@ pub fn mutate_tree(tree: &mut Tree, number_mutations: usize) {
         } else {
             node_id = tree.guided_token_id();
         }
+
         let mut m = mutate_token(tree, node_id);
 
         // If no mutation -> Retry
@@ -457,13 +459,14 @@ pub fn mutate_oid(data: Vec<u8>) -> Vec<u8> {
 
 pub fn mutate_string(data: Vec<u8>) -> Vec<u8> {
     let mut rng = rand::thread_rng();
-    let random_number: u8 = rng.gen_range(0..6);
+    let random_number: u8 = rng.gen_range(0..7);
 
     match random_number {
         0 => {
             // Duplicate first X Bytes
             let mut new_data = data.clone();
-            let size = rng.gen_range(1..10);
+            let max_v = if data.len() > 10{10} else {data.len()};
+            let size = rng.gen_range(1..max_v);
             let v = data[0..size].to_vec();
             new_data.splice(0..0, v);
             return new_data;
@@ -514,6 +517,17 @@ pub fn mutate_string(data: Vec<u8>) -> Vec<u8> {
 
             new_data.insert(byte, interesting_chars[random_value]);
             return new_data;
+        }
+        6 => {
+            // Insert interesting sequence of chars
+            let mut new_data = data.clone();
+            let byte = rng.gen_range(0..data.len());
+            let interesting_seq = vec!["../", "://", ".\\", "..", ";", "ü", "ß", "--", "https", "rsync", "$", "%", "?", "_", "...", ".roa", ".", "//", "/", "~", "+", "none"];
+            let random_index: usize = rng.gen_range(0..interesting_seq.len()).try_into().unwrap();
+            let bytes = interesting_seq[random_index].as_bytes();
+            new_data.splice(byte as usize..byte as usize, bytes.iter().copied());
+            return new_data;
+
         }
         _ => {
             unreachable!()
@@ -808,6 +822,11 @@ pub fn mutate_binary_data(data: &mut Vec<u8>) -> ContentMutation {
             *data = new_data;
             return ContentMutation::DataRemoval;
         }
+        10 => {
+            let new_data = vec![0u8; data.len()];
+            *data = new_data;
+            return ContentMutation::DataRemoval;
+        }
         _ => unreachable!(),
     }
 }
@@ -826,7 +845,8 @@ pub fn mutate_content_random(token: &mut Token) -> ContentMutation {
 // Generic manipulation of a field
 pub fn mutate_field(tree: &mut Tree, node_id: usize) -> FieldMutation {
     let mut rng = rand::thread_rng();
-    let mutation_types = [(0, 10), (1, 10), (2, 20), (3, 40)];
+    // TODO reenable 
+    let mutation_types = [(0, 0), (1, 0), (2, 50), (3, 150)]; // Only rarely mutate the structure
     let chosen_type = mutation_types.choose_weighted(&mut rng, |&(_, weight)| weight).unwrap().0;
 
     match chosen_type {

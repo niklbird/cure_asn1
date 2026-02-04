@@ -76,6 +76,24 @@ impl Types {
             _ => Types::TLV,
         }
     }
+
+    /// Return whether this type is only a content type or a nested type
+    pub fn is_content(&self) -> bool{
+        match self{
+            Types::Sequence => false,
+            Types::Set => false,
+            Types::OctetString => true,
+            Types::Implicit => false,
+            Types::TLV => true,
+            Types::NULL => true,
+            Types::BitString => true,
+            Types::ObjectIdentifier => true,
+            Types::Cont0 => true,
+            Types::Integer => true,
+            Types::IA5String => true,
+            _ => false,
+        }
+    }
 }
 
 pub fn get_type_id(typ: Types) -> u8 {
@@ -653,21 +671,19 @@ impl Tree {
         keys[random_index]
     }
 
-    /*
-    This token ID selection favors TLV tokens, as they usually contain the content
-    and are therefore the most interesting.
-     */
+    
+    /// This token ID selection favors TLV tokens, as they usually contain the content and are therefore the most interesting.
     pub fn guided_token_id(&self) -> usize {
         let mut rng = rand::thread_rng();
 
-        let random_index = rng.gen_range(0..4);
+        let random_index = rng.gen_range(0..24);
 
-        if random_index == 0 {
+        if random_index == 0 { // Make actual random very rare
             return self.random_token_id();
         } else {
             let mut list = Vec::with_capacity(self.tokens.len());
             for tok in self.tokens.keys() {
-                if &self.tokens[tok].tag == &Types::TLV {
+                if self.tokens[tok].children.len() == 0 { // Only include fields without children
                     list.push(tok);
                 }
             }
@@ -680,9 +696,7 @@ impl Tree {
         }
     }
 
-    /*
-    Select a random token, but emphasize encapContentInfo since that is interesting for RPKI objects
-     */
+    /// Select a random token, but emphasize encapContentInfo since that is interesting for RPKI objects    
     pub fn splice_token_id(&self) -> usize {
         let old_cure = true;
         let probs = vec![0, 0, 0, 1];
