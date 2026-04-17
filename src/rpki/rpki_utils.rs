@@ -1,3 +1,5 @@
+use crate::rpki::rpki::IPType;
+
 fn ipv6_to_octets(addr_str: &str) -> Result<Vec<u8>, String> {
     // Handle "::" (zero compression)
     let parts: Vec<&str> = addr_str.split("::").collect();
@@ -119,11 +121,7 @@ pub fn parse_ip_from_string(input: &str) -> Result<Vec<u8>, String>{
     let mut output = vec![ 8 - padding_amount as u8];
     output.extend(octets);
 
-   
-
     Ok(output)
-
-
 }
 
 pub fn parse_ip(ip: &Vec<u8>, fam: u8, padding_amount: usize) -> String {
@@ -232,6 +230,41 @@ pub fn parse_ip(ip: &Vec<u8>, fam: u8, padding_amount: usize) -> String {
     }
 
     return ret;
+}
+
+pub fn ipstring_to_bytes(ip: &str, family: &IPType) -> Vec<u8> {
+    let mut parts = vec![];
+
+    let ip_no_pre = ip.split("/").collect::<Vec<&str>>()[0];
+    if family == &IPType::V4 {
+        for el in ip_no_pre.split(".") {
+            let ell = el.parse::<u8>();
+            if ell.is_err() {
+                println!("Couldnt parse {:?}", el);
+                return vec![];
+            }
+            let el = ell.unwrap();
+            parts.push(el);
+        }
+        return parts;
+    } else {
+        for el in ip_no_pre.split(":") {
+            if el.is_empty() {
+                parts.push(0);
+                parts.push(0);
+            } else {
+                let ell = u16::from_str_radix(el, 16);
+                if ell.is_err() {
+                    println!("Couldnt parse {:?}", el);
+                    return vec![];
+                }
+                let el = ell.unwrap();
+                parts.push((el >> 8) as u8);
+                parts.push((el & 0xFF) as u8);
+            }
+        }
+        return parts;
+    }
 }
 
 pub fn byt_to_in(inp: &Vec<u8>) -> u64 {

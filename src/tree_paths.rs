@@ -1,5 +1,5 @@
 use crate::labeling::Label;
-use crate::labeling::LabelName::*;
+use crate::labels::LabelName::*;
 
 pub struct CertificatePaths {
     pub ski: Vec<Label>,

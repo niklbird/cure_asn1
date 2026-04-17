@@ -7,11 +7,11 @@
 //!
 //! [RRDP (RPKI Repository Delta Protocol)]: https://www.rfc-editor.org/rfc/rfc8182
 
-use crate::rpki::ObjectType;
-use crate::tree_parser::Tree;
-
 #![allow(non_upper_case_globals)] // FIXME Remove this once refactoring is done
 #![allow(dead_code)]
+
+use crate::rpki::rpki::ObjectType;
+use crate::tree_parser::Tree;
 
 pub mod asn1_parser;
 pub mod labeling;
@@ -23,6 +23,7 @@ pub mod research;
 pub mod tree_paths;
 pub mod labels;
 
+/// Parse DER-encoded Data into an Abstract Syntax Tree
 pub fn parse_tree(data: &Vec<u8>, typ: &str) -> Option<Tree> {
     let tree_obj_typ = ObjectType::from_string(typ).into();
     match asn1_parser::parse_asn1_object_slim(data) {

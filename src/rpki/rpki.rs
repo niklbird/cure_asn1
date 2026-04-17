@@ -17,10 +17,13 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use crate::labeling::{Label, LabelName};
+use crate::labeling::Label;
 use crate::tree_parser::Token;
 use std::error::Error;
 use std::fmt::Display;
+use crate::labels::LabelName;
+use crate::labels::LabelName::{EContentProfiled, MftFileList};
+use crate::rpki::rpki_utils;
 
 #[deprecated]
 pub fn parse_rpki_object(data: &Vec<u8>, typ: ObjectType) -> Option<RpkiObject> {
@@ -67,40 +70,40 @@ impl RpkiObject {
     }
 
     pub fn set_notification_uri(&mut self, uri: &str){
-        self.content.set_data_by_label("rpkiNotifyURI", uri.as_bytes().to_vec(), true, true);
+        self.content.set_data_by_label(&LabelName::CertExtSiaNotificationUri.into(), uri.as_bytes().to_vec(), true, true);
         self.content.fix_sizes(true);
     }
 
     pub fn set_manifest_uri(&mut self, uri: &str){
-        self.content.set_data_by_label("rpkiManifestURI", uri.as_bytes().to_vec(), true, true);
+        self.content.set_data_by_label(&LabelName::CertExtSiaRpkiManifestUri.into(), uri.as_bytes().to_vec(), true, true);
         self.content.fix_sizes(true);
     }
 
     pub fn set_crl_uri(&mut self, uri: &str){
-        self.content.set_data_by_label("crlDistributionPoint", uri.as_bytes().to_vec(), true, true);
+        self.content.set_data_by_label(&LabelName::CertExtCrldpUri.into(), uri.as_bytes().to_vec(), true, true);
         self.content.fix_sizes(true);
     }
 
     pub fn set_mft_entries_raw(&mut self, entries: Vec<u8>){
-        self.content.set_data_by_label("manifestHashes", entries, true, false);
+        self.content.set_data_by_label(&LabelName::MftFileList.into(), entries, true, false);
         self.content.fix_sizes(true);
     }
 
     pub fn get_mft_entries_raw(&self) -> Vec<u8>{
-        self.content.encode_node_content_by_label("manifestHashes")
+        self.content.encode_node_content_by_label(&LabelName::MftFileList.into())
     }
 
     pub fn get_crl_entries_raw(&self) -> Vec<u8>{
-        self.content.encode_node_content_by_label("crlEntriesField")
+        self.content.encode_node_content_by_label(&LabelName::IMftCrlEntries.into())
     }
 
     pub fn set_crl_entries_raw(&mut self, data: Vec<u8>){
-        self.content.set_data_by_label("crlEntriesField", data, true, true);
+        self.content.set_data_by_label(&LabelName::IMftCrlEntries.into(), data, true, true);
     }
 
 
     pub fn set_cert_repo_uri(&mut self, data: &str){
-        self.content.set_data_by_label("caRepositoryURI", data.as_bytes().to_vec(), true, true);
+        self.content.set_data_by_label(&LabelName::CertExtSiaCaRepositoryUri.into(), data.as_bytes().to_vec(), true, true);
         self.content.fix_sizes(true);
 
     }
@@ -126,7 +129,7 @@ impl RpkiObject {
     }
 
     pub fn get_mft_entries(&self) -> Vec<(String, String)>{
-        let node = self.content.get_node_by_label("manifestHashes").unwrap();
+        let node = self.content.get_node_by_label(&LabelName::MftFileList.into()).unwrap();
         let mut entries = vec![];
         for child in &node.children {
             let child_node = self.content.get_node(*child).unwrap();
@@ -146,7 +149,7 @@ impl RpkiObject {
     }
 
     pub fn get_cert_extension_oids(&self) -> Option<Vec<String>>{
-        let ext = self.content.get_node_by_label("extensions")?;
+        let ext = self.content.get_node_by_label(&LabelName::CertFldExtensionsSeq.into())?;
         let mut oids = vec![];
         for child in &ext.children{
             let child_id = self.content.tokens[child].children[0];
@@ -158,7 +161,7 @@ impl RpkiObject {
 
 
     pub fn get_encoded_extensions(&self) -> Option<Vec<(Vec<u8>, bool, Vec<u8>)>>{
-        let ext = self.content.get_node_by_label("extensions")?;
+        let ext = self.content.get_node_by_label(&LabelName::CertFldExtensionsSeq.into())?;
         let mut oids = vec![];
 
         for child in &ext.children{
@@ -202,7 +205,7 @@ impl RpkiObject {
 
 
     pub fn get_signed_attr_oids(&self) -> Option<Vec<String>>{
-        let ext = self.content.get_node_by_label("signerSignedAttributesField")?;
+        let ext = self.content.get_node_by_label(&LabelName::SignerInfoSignedAttributes.into())?;
         let mut oids = vec![];
         for child in &ext.children{
             let child_id = self.content.tokens[child].children[0];
@@ -214,7 +217,7 @@ impl RpkiObject {
 
     pub fn get_cert_mft_uri(&self) -> Option<String>{
         // rpkiManifestURI
-        let data = self.content.get_raw_by_label("rpkiManifestURI")?;
+        let data = self.content.get_raw_by_label(&LabelName::CertExtSiaRpkiManifestUri.into())?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
@@ -459,7 +462,7 @@ impl RpkiObject {
     }
 
     pub fn get_encap_content(&self) -> Option<Vec<u8>> {
-        let data = self.content.get_node_by_label("encapsulatedContent")?;
+        let data = self.content.get_node_by_label(&LabelName::EContentProfiled.into())?;
         let data = self.content.encode_node(data);
         Some(data)
     }
@@ -473,7 +476,7 @@ impl RpkiObject {
     }
 
     pub fn get_cert_signed_uri_repo(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label("signedObjectURI")?;
+        let data = self.content.get_raw_by_label(&LabelName::CertExtSiaSignedObjectUri.into())?;
         let object_uri = from_utf8(&data).unwrap_or_default().to_string();
         let repo_uri = object_uri.split("/").collect::<Vec<&str>>();
         let repo_uri = repo_uri[0..repo_uri.len() - 1]
@@ -485,19 +488,19 @@ impl RpkiObject {
 
 
     pub fn get_cert_aia(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label("caIssuersURI")?;
+        let data = self.content.get_raw_by_label(&LabelName::CertExtAiaCaIssuersUri.into())?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
 
     pub fn get_cert_serial(&self) -> Option<u64> {
-        let data = self.content.get_raw_by_label("serialNumber")?;
+        let data = self.content.get_raw_by_label(&LabelName::CertFldSerialNumber.into())?;
 
         Some(byt_to_in(&data))
     }
 
     pub fn get_cert_serial_raw(&self) -> Option<Vec<u8>> {
-        let data = self.content.get_raw_by_label("serialNumber")?;
+        let data = self.content.get_raw_by_label(&LabelName::CertFldSerialNumber.into())?;
 
         Some(data.clone())
     }
@@ -539,7 +542,7 @@ impl RpkiObject {
 
     pub fn get_cert_validity_not_before(&self) -> Option<DateTime<Utc>>{
 
-        let data = self.content.get_raw_by_label("notBefore")?;
+        let data = self.content.get_raw_by_label(&LabelName::CertFldValidityNotBefore.into())?;
 
         let s = from_utf8(&data).unwrap_or_default().to_string();
 
@@ -549,7 +552,7 @@ impl RpkiObject {
 
     pub fn get_cert_validity_not_after(&self) -> Option<DateTime<Utc>>{
 
-        let data = self.content.get_raw_by_label("notAfter")?;
+        let data = self.content.get_raw_by_label(&LabelName::CertFldValidityNotAfter.into())?;
 
         let s = from_utf8(&data).unwrap_or_default().to_string();
 
@@ -559,7 +562,7 @@ impl RpkiObject {
 
     pub fn get_mft_validity_not_after(&self) -> Option<DateTime<Utc>>{
 
-        let data = self.content.get_raw_by_label("nextUpdate")?;
+        let data = self.content.get_raw_by_label(&LabelName::MftNextUpdate.into())?;
 
         let s = from_utf8(&data).unwrap_or_default().to_string();
 
