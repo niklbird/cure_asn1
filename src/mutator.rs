@@ -95,12 +95,13 @@ pub fn mutate_tree(tree: &mut Tree, number_mutations: usize) {
         return;
     }
 
-    let likelihood_random = 0.2;
+    let likelihood_random = 0.4;
     for _ in 0..number_mutations {
-        let node_id;
+        let mut node_id;
         if tree.mutations.len() > 0 {
             let last_id = tree.mutations.last().unwrap().node_id;
             let random_res = random::<f32>();
+
             if random_res < likelihood_random
                 || !tree.tokens.contains_key(&last_id)
                 || tree.mutations.last().unwrap().get_mutation_string().contains("NoMutation")
@@ -112,7 +113,23 @@ pub fn mutate_tree(tree: &mut Tree, number_mutations: usize) {
         } else {
             node_id = tree.guided_token_id();
         }
-        let m = mutate_token(tree, node_id);
+
+        let mut m = mutate_token(tree, node_id);
+
+        // If no mutation -> Retry
+        if m.is_no_mutation() {
+            let attempt = 3;
+            for _ in 0..attempt {
+                node_id = tree.guided_token_id();
+            
+            m = mutate_token(tree, node_id);
+            if !m.is_no_mutation() {
+                break;
+            }}
+        }
+        else{
+            // println!("{:?} on {}", m, tree.tokens.get(&node_id).unwrap().info);
+        }
         tree.mutations.push(Mutation { mutation: m, node_id });
     }
     tree.fix_sizes(true);
@@ -442,13 +459,14 @@ pub fn mutate_oid(data: Vec<u8>) -> Vec<u8> {
 
 pub fn mutate_string(data: Vec<u8>) -> Vec<u8> {
     let mut rng = rand::thread_rng();
-    let random_number: u8 = rng.gen_range(0..6);
+    let random_number: u8 = rng.gen_range(0..7);
 
     match random_number {
         0 => {
             // Duplicate first X Bytes
             let mut new_data = data.clone();
-            let size = rng.gen_range(1..10);
+            let max_v = if data.len() > 10{10} else {data.len()};
+            let size = rng.gen_range(1..max_v);
             let v = data[0..size].to_vec();
             new_data.splice(0..0, v);
             return new_data;
@@ -480,7 +498,7 @@ pub fn mutate_string(data: Vec<u8>) -> Vec<u8> {
             let mut new_data = data.clone();
             let byte = rng.gen_range(0..data.len());
             new_data[byte] = new_data[byte].wrapping_add(1);
-            return new_data;
+            return new_data; 
         }
         4 => {
             // Insert random char
@@ -499,6 +517,17 @@ pub fn mutate_string(data: Vec<u8>) -> Vec<u8> {
 
             new_data.insert(byte, interesting_chars[random_value]);
             return new_data;
+        }
+        6 => {
+            // Insert interesting sequence of chars
+            let mut new_data = data.clone();
+            let byte = rng.gen_range(0..data.len());
+            let interesting_seq = vec!["../", "://", ".\\", "..", ";", "ü", "ß", "--", "https", "rsync", "$", "%", "?", "_", "...", ".roa", ".", "//", "/", "~", "+", "none"];
+            let random_index: usize = rng.gen_range(0..interesting_seq.len()).try_into().unwrap();
+            let bytes = interesting_seq[random_index].as_bytes();
+            new_data.splice(byte as usize..byte as usize, bytes.iter().copied());
+            return new_data;
+
         }
         _ => {
             unreachable!()
@@ -793,6 +822,11 @@ pub fn mutate_binary_data(data: &mut Vec<u8>) -> ContentMutation {
             *data = new_data;
             return ContentMutation::DataRemoval;
         }
+        10 => {
+            let new_data = vec![0u8; data.len()];
+            *data = new_data;
+            return ContentMutation::DataRemoval;
+        }
         _ => unreachable!(),
     }
 }
@@ -811,7 +845,8 @@ pub fn mutate_content_random(token: &mut Token) -> ContentMutation {
 // Generic manipulation of a field
 pub fn mutate_field(tree: &mut Tree, node_id: usize) -> FieldMutation {
     let mut rng = rand::thread_rng();
-    let mutation_types = [(0, 10), (1, 10), (2, 20), (3, 40)];
+    // TODO reenable 
+    let mutation_types = [(0, 0), (1, 0), (2, 50), (3, 150)]; // Only rarely mutate the structure
     let chosen_type = mutation_types.choose_weighted(&mut rng, |&(_, weight)| weight).unwrap().0;
 
     match chosen_type {
@@ -964,8 +999,9 @@ pub fn mutate_sequence(tree: &mut Tree, node_id: usize) -> SequenceMutation {
                 }
             }
             let new_id = max_id + 1;
-            let mut new_token = Token::new(Types::TLV, 1, vec![0], node_id, new_id);
-            new_token.visual_tag = vec![rng.gen_range(0..50)];
+            let nt = rng.gen_range(0..50);
+            let mut new_token = Token::new(Types::TLV, 1, vec![0], node_id, new_id, nt);
+            new_token.visual_tag = vec![nt];
             tree.tokens.insert(new_id, new_token);
 
             tree.tokens.get_mut(&node_id).unwrap().children.push(new_id);
@@ -980,7 +1016,6 @@ pub fn mutate_tlv(tree: &mut Tree, node_id: usize) -> TokenMutation {
 }
 
 pub fn mutate_octetstring(tree: &mut Tree, node_id: usize) -> TokenMutation {
-    // let node = tree.tokens.get_mut(&node_id).unwrap();
     let mut rng = rand::thread_rng();
     let random_number: u8 = rng.gen_range(0..1);
 
@@ -1039,6 +1074,12 @@ pub enum TokenMutation {
     OctetString(ConstructedMutation),
     Implicit(ConstructedMutation),
     NoMutation,
+}
+
+impl TokenMutation{
+    pub fn is_no_mutation(&self) -> bool {
+        matches!(self, TokenMutation::NoMutation) || format!("{:?}", self).contains("NoMutation")
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]

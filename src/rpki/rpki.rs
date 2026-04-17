@@ -2,10 +2,11 @@ use std::str::from_utf8;
 
 use crate::{
     labeling::parse_oid,
-    rpki_utils::{byt_to_in, parse_ip},
+    rpki::rpki_utils::{byt_to_in, parse_ip},
     tree_parser::Tree,
 };
 use base64::{prelude::BASE64_STANDARD, Engine};
+use chrono::{DateTime, TimeZone, Utc};
 use rand::{seq::SliceRandom, thread_rng};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use regex::Regex;
@@ -25,9 +26,15 @@ pub fn parse_rpki_object(data: &Vec<u8>, typ: &ObjectType) -> Option<RpkiObject>
         println!("Error during parsing {:?}", root);
         return None;
     }
+    let root = root.unwrap();
+    if root.get_len() == 0{
+        return None;
+    }
 
-    let mut tree = Tree::generate_tree(root.unwrap(), typ.to_string());
-
+    let mut tree = Tree::generate_tree(root, typ.to_string());
+    if tree.tokens.len() == 0{
+        return None;
+    }
     tree.fix_octetstrings(&typ.to_string());
 
     Some(RpkiObject {
@@ -37,7 +44,7 @@ pub fn parse_rpki_object(data: &Vec<u8>, typ: &ObjectType) -> Option<RpkiObject>
 }
 
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RpkiObject {
     pub content: Tree,
     pub typ: String,
@@ -50,6 +57,47 @@ impl RpkiObject {
         RpkiObject { content, typ }
     }
 
+
+    pub fn set_notification_uri(&mut self, uri: &str){
+        self.content.set_data_by_label("rpkiNotifyURI", uri.as_bytes().to_vec(), true, true);
+        self.content.fix_sizes(true);
+    }
+
+    pub fn set_manifest_uri(&mut self, uri: &str){
+        self.content.set_data_by_label("rpkiManifestURI", uri.as_bytes().to_vec(), true, true);
+        self.content.fix_sizes(true);
+    }
+
+    pub fn set_crl_uri(&mut self, uri: &str){
+        self.content.set_data_by_label("crlDistributionPoint", uri.as_bytes().to_vec(), true, true);
+        self.content.fix_sizes(true);
+    }
+
+    pub fn set_mft_entries_raw(&mut self, entries: Vec<u8>){
+        self.content.set_data_by_label("manifestHashes", entries, true, false);
+        self.content.fix_sizes(true);
+    }
+
+    pub fn get_mft_entries_raw(&self) -> Vec<u8>{
+        self.content.encode_node_content_by_label("manifestHashes")
+    }
+
+    pub fn get_crl_entries_raw(&self) -> Vec<u8>{
+        self.content.encode_node_content_by_label("crlEntriesField")
+    }
+
+    pub fn set_crl_entries_raw(&mut self, data: Vec<u8>){
+        self.content.set_data_by_label("crlEntriesField", data, true, true);
+    } 
+
+
+    pub fn set_cert_repo_uri(&mut self, data: &str){
+        self.content.set_data_by_label("caRepositoryURI", data.as_bytes().to_vec(), true, true);
+        self.content.fix_sizes(true);
+
+    }
+
+
     pub fn get_roa_vrps(&self) -> Option<Vec<String>> {
         let asn = self.get_roa_asn()?;
         let ips = self.get_roa_ips_string();
@@ -61,7 +109,7 @@ impl RpkiObject {
     }
 
     pub fn get_roa_asn(&self) -> Option<u64> {
-        let raw = self.content.get_raw_by_label("AS-ID");
+        let raw = self.content.get_raw_by_label("asID");
 
         if raw.is_none() {
             return None;
@@ -76,9 +124,103 @@ impl RpkiObject {
         Some(result)
     }
 
+    pub fn get_mft_entries(&self) -> Vec<(String, String)>{
+        let node = self.content.get_node_by_label("manifestHashes").unwrap();
+        let mut entries = vec![];
+        for child in &node.children {
+            let child_node = self.content.get_node(*child).unwrap();
+            let uri_id = child_node.children[0];
+            let uri = from_utf8(&self.content.tokens.get(&uri_id).unwrap().data)
+                .unwrap_or_default()
+                .to_string();
+
+            let hash_id = child_node.children[1];
+            let hash = from_utf8(&self.content.tokens.get(&hash_id).unwrap().data)
+                .unwrap_or_default()
+                .to_string();
+
+            entries.push((uri, hash));
+        }
+        entries
+    }
+
+    pub fn get_cert_extension_oids(&self) -> Option<Vec<String>>{
+        let ext = self.content.get_node_by_label("extensions")?;
+        let mut oids = vec![];
+        for child in &ext.children{
+            let child_id = self.content.tokens[child].children[0];
+            oids.push(parse_oid(&self.content.tokens[&child_id].data));
+        }
+
+        Some(oids)
+    }
+
+
+    pub fn get_encoded_extensions(&self) -> Option<Vec<(Vec<u8>, bool, Vec<u8>)>>{
+        let ext = self.content.get_node_by_label("extensions")?;
+        let mut oids = vec![];
+
+        for child in &ext.children{
+            let child_node = self.content.get_node(*child).unwrap();
+            let child_id = child_node.children[0];
+
+            let oid = self.content.tokens.get(&child_id).unwrap().data.clone();
+            // let first_val = data[0]as u32 * 40 + data[1] as u32;
+            // let mut oid = vec![first_val];
+            // // let mut oid = vec![];
+            // let mut v = 0 as u32;
+            // for b in &data[2..]{
+            //     if b & 0x80 == 0{
+            //         v = (v << 7) | (*b as u32);
+            //         oid.push(v);
+            //         v = 0;
+            //         continue;
+            //     }
+            //     v += (*b & 0x7F) as u32;
+            // }
+            // break;
+            let (critical, data) = if child_node.children.len() == 3{
+                let crit_id = child_node.children[1];
+                let field_data = self.content.encode_node_content(&self.content.tokens.get(&child_node.children[2]).unwrap(), false).clone();
+                let crit_data = self.content.tokens.get(&crit_id).unwrap().data.clone();
+                if crit_data.len() == 1 && crit_data[0] == 0xFF{
+                    (true, field_data)
+                } else{
+                    (false, field_data)
+                }
+            } else{
+                (false, self.content.encode_node_content(&self.content.tokens.get(&child_node.children[1]).unwrap(), false).clone())
+            };
+
+            oids.push((oid, critical, data));
+
+        }
+
+        Some(oids)
+    }
+
+
+    pub fn get_signed_attr_oids(&self) -> Option<Vec<String>>{
+        let ext = self.content.get_node_by_label("signerSignedAttributesField")?;
+        let mut oids = vec![];
+        for child in &ext.children{
+            let child_id = self.content.tokens[child].children[0];
+            oids.push(parse_oid(&self.content.tokens[&child_id].data));
+        }
+
+        Some(oids)
+    }
+
+    pub fn get_cert_mft_uri(&self) -> Option<String>{
+        // rpkiManifestURI
+        let data = self.content.get_raw_by_label("rpkiManifestURI")?;
+
+        Some(from_utf8(&data).unwrap_or_default().to_string())
+    }
+
     pub fn get_roa_ips_string(&self) -> Vec<String> {
         let mut ips = vec![];
-        let n = self.content.get_node_by_label("IpAddresses");
+        let n = self.content.get_node_by_label("ipAddrBlocks");
         if n.is_none() {
             return ips;
         }
@@ -164,11 +306,49 @@ impl RpkiObject {
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
 
+    pub fn get_encap_content(&self) -> Option<Vec<u8>> {
+        let data = self.content.get_node_by_label("encapsulatedContent")?;
+        let data = self.content.encode_node(data);
+        Some(data)
+    }
+
     pub fn get_cert_signed_uri(&self) -> Option<String> {
         let data = self.content.get_raw_by_label("signedObjectURI")?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
+
+    pub fn get_cert_signed_uri_repo(&self) -> Option<String> {
+        let data = self.content.get_raw_by_label("signedObjectURI")?;
+        let object_uri = from_utf8(&data).unwrap_or_default().to_string();
+        let repo_uri = object_uri.split("/").collect::<Vec<&str>>();
+        let repo_uri = repo_uri[0..repo_uri.len() - 1]
+            .join("/")
+            .to_string();
+        let repo_uri = format!("{}/", repo_uri);
+        Some(repo_uri)
+    }
+
+
+    pub fn get_cert_aia(&self) -> Option<String> {
+        let data = self.content.get_raw_by_label("caIssuersURI")?;
+
+        Some(from_utf8(&data).unwrap_or_default().to_string())
+    }
+
+    pub fn get_cert_serial(&self) -> Option<u64> {
+        let data = self.content.get_raw_by_label("serialNumber")?;
+
+        Some(byt_to_in(&data))
+    }
+
+    pub fn get_cert_serial_raw(&self) -> Option<Vec<u8>> {
+        let data = self.content.get_raw_by_label("serialNumber")?;
+
+        Some(data.clone())
+    }
+
+
 
     pub fn get_cert_aki(&self) -> Option<String> {
         let data = self.content.get_raw_by_label("authorityKeyIdentifier")?;
@@ -194,6 +374,61 @@ impl RpkiObject {
         }
         parse_oid(&data.unwrap())
     }
+
+    pub fn get_cert_validity_not_before(&self) -> Option<DateTime<Utc>>{
+        
+        let data = self.content.get_raw_by_label("notBefore")?;
+
+        let s = from_utf8(&data).unwrap_or_default().to_string();
+
+        Self::format_timestamp(&s)
+        
+    }
+
+    pub fn get_cert_validity_not_after(&self) -> Option<DateTime<Utc>>{
+        
+        let data = self.content.get_raw_by_label("notAfter")?;
+
+        let s = from_utf8(&data).unwrap_or_default().to_string();
+
+        Self::format_timestamp(&s)
+        
+    }
+
+    pub fn get_mft_validity_not_after(&self) -> Option<DateTime<Utc>>{
+        
+        let data = self.content.get_raw_by_label("nextUpdate")?;
+
+        let s = from_utf8(&data).unwrap_or_default().to_string();
+
+        Self::format_timestamp(&s)
+        
+    }
+
+    
+
+
+    fn format_timestamp(timestamp: &str) -> Option<DateTime<Utc>> {
+        if timestamp.len() != 13 || !timestamp.ends_with('Z') {
+            return None; // Invalid format
+        }
+
+        let year = 2000 + timestamp[0..2].parse::<i32>().ok()?; // Assuming 21st century
+        let month = timestamp[2..4].parse::<u32>().ok()?;
+        let day = timestamp[4..6].parse::<u32>().ok()?;
+        let hour = timestamp[6..8].parse::<u32>().ok()?;
+        let minute = timestamp[8..10].parse::<u32>().ok()?;
+        let second = timestamp[10..12].parse::<u32>().ok()?;
+
+        let naive_dt = DateTime::from_timestamp(
+            Utc.with_ymd_and_hms(year, month, day, hour, minute, second).single()?.timestamp(),
+            0,
+        )?;
+
+        Some(naive_dt.to_utc())
+    }
+
+
 }
 
 
@@ -252,7 +487,7 @@ impl ObjectType {
 
     pub fn is_payload(&self) -> bool{
         match self {
-            ObjectType::ROA | ObjectType::ASA | ObjectType::GBR => true,
+            ObjectType::ROA | ObjectType:: IROA | ObjectType::ASA | ObjectType::GBR => true,
             _ => false,
         }
     }
@@ -387,10 +622,19 @@ pub fn ipstring_to_bytes(ip: &str, family: &IPType) -> Vec<u8> {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Metadata {
-    counts: u32,
+    // counts: u32,
     generated: u64,
-    valid: u64,
+    // valid: u64,
+    generated_time: String,
 }
+
+// #[derive(Serialize, Deserialize, Debug)]
+// pub struct JsonRoa {
+//     pub prefix: String,
+//     pub max_length: u8,
+//     pub asn: String,
+//     pub ta: String,
+// }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct JsonRoa {
@@ -439,6 +683,15 @@ impl Entry {
         res
     }
 
+    pub fn to_string_entry(&self) -> String {
+        format!(
+            "{},{},{}",
+            self.asn,
+            self.ip.ip_s,
+            self.ip.max_len.to_string()
+        )
+    }
+
     pub fn from_roa_str(raw: &str) -> Option<Entry> {
         if !raw.contains("=>") {
             return None;
@@ -461,7 +714,7 @@ impl Entry {
 
         let ip_raw = s[0];
         let ip_raw = ip_raw.trim();
-        let ip = ip_raw.split("/").nth(0).unwrap().to_string();
+        let ip = ip_raw.to_string();
 
         let prefix = ip_raw.split("/").nth(1).unwrap().parse::<u8>().unwrap();
 
@@ -620,7 +873,7 @@ impl VRPS {
     }
 
     pub fn from_file(file_uri: &str, rp_name: &str) -> VRPS {
-        let content = std::fs::read_to_string(file_uri).unwrap();
+        let content = std::fs::read_to_string(file_uri).unwrap_or_default();
         VRPS::from_content(&content, &rp_name)
     }
 
@@ -658,7 +911,7 @@ impl VRPS {
         }
     }
 
-    pub fn from_objects(objects: HashMap<String, Vec<u8>>, base_uri: &str) -> VRPS {
+    pub fn from_objects(objects: &HashMap<String, Vec<u8>>, base_uri: &str) -> VRPS {
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(6)
             .build()
@@ -698,15 +951,19 @@ impl VRPS {
 
             for ip in ips {
                 let ip = ip.to_string();
-                let ip = ip.split(",").collect::<Vec<_>>()[0];
+                let sp = ip.split(",").collect::<Vec<_>>();
+                let ip = sp[0].to_string();
+                let ml = sp[1].parse::<u8>().unwrap_or(0);
                 // let ip = s[0..s.len() - 1].join("/");
                 let s = format!("{} => {}", ip, asn);
                 let entry = Entry::from_roa_str(&s);
+
                 if entry.is_none() {
                     println!("Failed to parse {:?}", uri);
                     continue;
                 }
-                let entry = entry.unwrap();
+                let mut entry = entry.unwrap();
+                entry.ip.max_len = ml;
                 vrps.insert(entry);
             }
         }
@@ -739,6 +996,17 @@ impl VRPS {
         }
 
         (not_in_a, not_in_b)
+    }
+
+    pub fn intersect_many(&self, others: Vec<VRPS>) -> Vec<Entry> {
+        let mut own_entries = self.content.iter().collect::<HashSet<&Entry>>();
+        for other in &others {
+            let other_entries = other.content.iter().collect::<HashSet<&Entry>>();
+            own_entries.retain(|&entry| other_entries.contains(entry));
+        }
+
+        let intersection: Vec<Entry> = own_entries.into_iter().cloned().collect();
+        intersection
     }
 
     pub fn differences_many(&self, others: Vec<VRPS>) -> Vec<DiffEntry> {
@@ -793,5 +1061,15 @@ impl VRPS {
             }
         }
         return false;
+    }
+
+    pub fn contains_entry_prefix(&self, prefix: &str) -> Vec<u32> {
+        let mut ret_asns = vec![];
+        for con in &self.content {
+            if con.ip.ip_s == prefix {
+                ret_asns.push(con.asn);
+            }
+        }
+        return ret_asns;
     }
 }

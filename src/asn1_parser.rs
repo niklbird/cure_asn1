@@ -1,4 +1,5 @@
 use std::fmt;
+use base64::{prelude::BASE64_STANDARD, Engine};
 
 pub fn is_nested(tag: u8) -> bool {
     if tag == 4 || tag == 4 + 32 {
@@ -24,7 +25,7 @@ pub fn create_element(tag: u8, length: usize, data: &[u8], children: Option<Vec<
     match tag {
         4 | 36 => {
             let value;
-            if children.is_some() && children.as_ref().unwrap().len() == 1 {
+            if children.is_some() && children.as_ref().unwrap().len() == 1{
                 value = Some(Box::new(children.unwrap()[0].clone()));
             } else {
                 value = None;
@@ -67,6 +68,11 @@ pub fn create_element(tag: u8, length: usize, data: &[u8], children: Option<Vec<
     }
 }
 
+fn tag_is_constructed(tag: u8) -> bool {
+    tag & 0b0010_0000 != 0
+}
+
+
 pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<(Vec<u8>, usize, Vec<Element>), ASN1Error> {
     let mut content: Vec<u8> = Vec::new();
     let mut elements: Vec<Element> = Vec::new();
@@ -76,6 +82,8 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
     let start_cursor = cursor;
     while cursor + 2 < data.len() {
         let tag = data[cursor];
+        let constructed = tag_is_constructed(tag);
+
         content.push(tag);
 
         cursor += 1;
@@ -90,7 +98,13 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
                     let len = encode_asn1_length(new_content.len());
                     content.extend(len);
 
-                    elements.push(create_element(tag, new_content.len(), &new_content, Some(children)));
+                    // De-construct constructed OctetStrings -> They are not required for DER
+                    if constructed && tag == 36{
+                        elements.extend(children);
+                    }
+                    else{
+                        elements.push(create_element(tag, new_content.len(), &new_content, Some(children)));
+                    }
 
                     content.extend(new_content);
 
@@ -127,7 +141,7 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
 
                     if data.len() < cursor + len {
                         return Err(ASN1Error {
-                            message: "Length longer than Data".to_string(),
+                            message: "Length longer than Data1".to_string(),
                         });
                     }
 
@@ -158,7 +172,7 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
                     {
                         if data.len() < cursor + len {
                             return Err(ASN1Error {
-                                message: "Length longer than Data".to_string(),
+                                message: "Length longer than Data2".to_string(),
                             });
                         }
                         content.extend(&data[cursor..cursor + len]);
@@ -211,7 +225,7 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
 
                 if data.len() < cursor + len {
                     return Err(ASN1Error {
-                        message: "Length longer than Data".to_string(),
+                        message: "Length longer than Data3".to_string(),
                     });
                 }
 
@@ -226,7 +240,7 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
                 let (len, len_size) = parse_length(&data[cursor..])?;
                 if data.len() < cursor + len_size + len {
                     return Err(ASN1Error {
-                        message: "Length longer than Data".to_string(),
+                        message: "Length longer than Data4".to_string(),
                     });
                 }
 
@@ -261,15 +275,24 @@ pub fn convert_ber_to_der(data: &Vec<u8>) -> Result<Vec<u8>, ASN1Error> {
 
 pub fn parse_asn1_object(data: &Vec<u8>) -> Result<(Vec<u8>, Element), ASN1Error> {
     let (der, _, el) = proc_nested(data, 0, None)?;
+
     Ok((der, el[0].clone()))
 }
 
 pub fn parse_asn1_object_slim(data: &Vec<u8>) -> Result<Element, ASN1Error> {
+    if data.len() == 0{
+        return Err(ASN1Error::new("Data was empty".to_string()));
+    }
     let (_, _, el) = proc_nested(data, 0, None)?;
+    if data.len() == 0 || el.len() == 0 || el[0].get_child_amount() == 0{
+        println!("Error with data {}", BASE64_STANDARD.encode(data));
+        return Err(ASN1Error::new("Error".to_string()));
+    }
+
     Ok(el[0].clone())
 }
 
-fn parse_length(data: &[u8]) -> Result<(usize, usize), ASN1Error> {
+pub fn parse_length(data: &[u8]) -> Result<(usize, usize), ASN1Error> {
     let first_byte = data[0];
     let mut length: usize = 0;
     let length_bytes;
@@ -292,7 +315,7 @@ fn parse_length(data: &[u8]) -> Result<(usize, usize), ASN1Error> {
             length <<= 8;
             if 1 + i >= data.len() {
                 return Err(ASN1Error {
-                    message: "Length longer than Data".to_string(),
+                    message: "Length longer than Data5".to_string(),
                 });
             }
             length |= data[1 + i] as usize;
@@ -397,6 +420,16 @@ impl Element {
         }
     }
 
+    pub fn get_tag(&self) -> u8 {
+        match self {
+            Element::Sequence(seq) => seq.tag,
+            Element::Set(set) => set.tag,
+            Element::TLV(tlv) => tlv.tag,
+            Element::OctetString(octet_string) => octet_string.tag,
+            Element::Implicit(implicit) => implicit.tag,
+        }
+    }
+
     pub fn get_data(&self) -> Vec<u8>{
         match self {
             Element::Sequence(seq) => seq.data.clone(),
@@ -412,7 +445,7 @@ impl Element {
             Element::Sequence(seq) => seq.value.len(),
             Element::Set(set) => set.value.len(),
             Element::TLV(_) => 0,
-            Element::OctetString(_) => 0,
+            Element::OctetString(oc) => oc.value.is_some().then(|| 1).unwrap_or(0),
             Element::Implicit(imp) => imp.value.len(),
         }
     }
@@ -424,6 +457,16 @@ impl Element {
             Element::TLV(tlv) => tlv.value.clone(),
             Element::OctetString(octet_string) => octet_string.data.clone(),
             Element::Implicit(imp) => imp.value[0].get_data(),
+        }
+    }
+
+    pub fn add_child(&mut self, child: Element){
+        match self {
+            Element::Sequence(seq) => seq.value.push(child),
+            Element::Set(set) => set.value.push(child),
+            Element::TLV(_) => println!("Cannot add child to TLV"),
+            Element::OctetString(_) => println!("Cannot add child to OctetString"),
+            Element::Implicit(imp) => imp.value.push(child),
         }
     }
 }
