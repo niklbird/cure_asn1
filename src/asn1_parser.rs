@@ -1,24 +1,48 @@
+//! The `asn1_parser` module contains specific types representing ASN.1 tree elements [`Sequence`],
+//! [`Set`], [`OctetString`], and the special-purpose [`TLV`] and [`Implicit`].
+//! [`Element`] lists the variants that are supported.
+//!
+//! These elements serve in interpreting RPKI ASN.1 encoded objects and is no exact 1:1
+//! representation of ASN.1 types.
+//! Instead, this is a framework that allows generic interpretation of data and only explicitly
+//! supports specific elements used for nesting.
+//!
+//! The module also contains a series of helper functions.
+
 use std::fmt;
+
+// const CLASS_UNIVERSAL: u8 = 0b00000000; // 0
+// const CLASS_APPLICATION: u8 = 0b01000000; // 64
+// const CLASS_CONTEXT_SPECIFIC: u8 = 0b10000000; // 128
+// const CLASS_PRIVATE: u8 = 0b11000000; // 192
+//
+// const FORM_PRIMITIVE: u8 = 0b00000000; // 0
+// const FORM_CONSTRUCTED: u8 = 0b00100000; // 32
 
 pub fn is_nested(tag: u8) -> bool {
     if tag == 4 || tag == 4 + 32 {
         // OctetString
-        return true;
+        true
     } else if tag == 48 || tag == 48 + 32 {
         // Sequence
-        return true;
+        true
     } else if tag == 49 || tag == 49 + 32 {
         // Set
-        return true;
+        true
     } else if tag >= 160 && tag <= 166 {
         // Implicit
-        return true;
+        true
     } else {
-        return false;
+        false
     }
 }
 
-pub fn create_element(tag: u8, length: usize, data: &[u8], children: Option<Vec<Element>>) -> Element {
+pub fn create_element(
+    tag: u8,
+    length: usize,
+    data: &[u8],
+    children: Option<Vec<Element>>,
+) -> Element {
     let total_len = 1 + encode_asn1_length(length).len() + length;
 
     match tag {
@@ -67,7 +91,11 @@ pub fn create_element(tag: u8, length: usize, data: &[u8], children: Option<Vec<
     }
 }
 
-pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<(Vec<u8>, usize, Vec<Element>), ASN1Error> {
+pub fn proc_nested(
+    data: &[u8],
+    cursor: usize,
+    length: Option<usize>,
+) -> Result<(Vec<u8>, usize, Vec<Element>), ASN1Error> {
     let mut content: Vec<u8> = Vec::new();
     let mut elements: Vec<Element> = Vec::new();
 
@@ -90,7 +118,12 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
                     let len = encode_asn1_length(new_content.len());
                     content.extend(len);
 
-                    elements.push(create_element(tag, new_content.len(), &new_content, Some(children)));
+                    elements.push(create_element(
+                        tag,
+                        new_content.len(),
+                        &new_content,
+                        Some(children),
+                    ));
 
                     content.extend(new_content);
 
@@ -98,7 +131,9 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
                 }
                 // Special case for OctetString, as here we only attempt inference, might also be a non-nested type
                 else if tag == 4 || tag == 36 {
-                    let first_occurrence = data[cursor..].windows(2).position(|window| window == [0, 0]);
+                    let first_occurrence = data[cursor..]
+                        .windows(2)
+                        .position(|window| window == [0, 0]);
 
                     if first_occurrence.is_none() {
                         return Err(ASN1Error {
@@ -134,7 +169,12 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
                     content.extend(encode_asn1_length(first_occurrence));
                     content.extend(&data[cursor..cursor + len]);
 
-                    elements.push(create_element(tag, first_occurrence, &data[cursor..cursor + len].to_vec(), None));
+                    elements.push(create_element(
+                        tag,
+                        first_occurrence,
+                        &data[cursor..cursor + len].to_vec(),
+                        None,
+                    ));
 
                     // +2 for the 0x00 0x00
                     cursor += len + 2;
@@ -154,7 +194,9 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
 
                     // Special treatment for Octetstrings as they are trying to be inferred
                     if (tag == 4 || tag == 36)
-                        && (nested.is_err() || nested.as_ref().unwrap().0.len() != len || nested.as_ref().unwrap().0.len() == 20)
+                        && (nested.is_err()
+                            || nested.as_ref().unwrap().0.len() != len
+                            || nested.as_ref().unwrap().0.len() == 20)
                     {
                         if data.len() < cursor + len {
                             return Err(ASN1Error {
@@ -163,13 +205,23 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
                         }
                         content.extend(&data[cursor..cursor + len]);
 
-                        elements.push(create_element(tag, len, &data[cursor..cursor + len].to_vec(), None));
+                        elements.push(create_element(
+                            tag,
+                            len,
+                            &data[cursor..cursor + len].to_vec(),
+                            None,
+                        ));
 
                         cursor += len;
                     } else if nested.is_ok() {
                         let (new_content, new_cursor, children) = nested?;
 
-                        elements.push(create_element(tag, new_content.len(), &new_content, Some(children)));
+                        elements.push(create_element(
+                            tag,
+                            new_content.len(),
+                            &new_content,
+                            Some(children),
+                        ));
 
                         content.extend(new_content);
 
@@ -182,7 +234,9 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
         } else {
             if data[cursor] == 128 {
                 cursor += 1;
-                let first_occurrence = data[cursor..].windows(2).position(|window| window == [0, 0]);
+                let first_occurrence = data[cursor..]
+                    .windows(2)
+                    .position(|window| window == [0, 0]);
 
                 if first_occurrence.is_none() {
                     return Err(ASN1Error {
@@ -218,7 +272,12 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
                 content.extend(encode_asn1_length(first_occurrence));
                 content.extend(&data[cursor..cursor + len]);
 
-                elements.push(create_element(tag, first_occurrence, &data[cursor..cursor + len].to_vec(), None));
+                elements.push(create_element(
+                    tag,
+                    first_occurrence,
+                    &data[cursor..cursor + len].to_vec(),
+                    None,
+                ));
 
                 // +2 for the 0x00 0x00
                 cursor += len + 2;
@@ -234,7 +293,12 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
                 cursor += len_size;
                 content.extend(&data[cursor..cursor + len]);
 
-                elements.push(create_element(tag, len, &data[cursor..cursor + len].to_vec(), None));
+                elements.push(create_element(
+                    tag,
+                    len,
+                    &data[cursor..cursor + len].to_vec(),
+                    None,
+                ));
 
                 cursor += len;
             }
@@ -243,7 +307,8 @@ pub fn proc_nested(data: &[u8], cursor: usize, length: Option<usize>) -> Result<
             || length.is_some() && cursor - start_cursor >= length.unwrap()
             || length.is_none() && data[cursor] == 0 && data[cursor + 1] == 0
         {
-            if cursor < data.len() && length.is_none() && data[cursor] == 0 && data[cursor + 1] == 0 {
+            if cursor < data.len() && length.is_none() && data[cursor] == 0 && data[cursor + 1] == 0
+            {
                 cursor += 2;
             }
             return Ok((content, cursor, elements));
@@ -353,7 +418,6 @@ pub enum Element {
     Implicit(Implicit),
 }
 
-
 // Implement `From` for each ASN.1 type
 impl From<TLV> for Element {
     fn from(tlv: TLV) -> Self {
@@ -385,7 +449,6 @@ impl From<Implicit> for Element {
     }
 }
 
-
 impl Element {
     pub fn get_len(&self) -> usize {
         match self {
@@ -397,7 +460,7 @@ impl Element {
         }
     }
 
-    pub fn get_data(&self) -> Vec<u8>{
+    pub fn get_data(&self) -> Vec<u8> {
         match self {
             Element::Sequence(seq) => seq.data.clone(),
             Element::Set(set) => set.data.clone(),
@@ -407,7 +470,7 @@ impl Element {
         }
     }
 
-    pub fn get_child_amount(&self) -> usize{
+    pub fn get_child_amount(&self) -> usize {
         match self {
             Element::Sequence(seq) => seq.value.len(),
             Element::Set(set) => set.value.len(),
@@ -417,7 +480,7 @@ impl Element {
         }
     }
 
-    pub fn encode_content(&self) -> Vec<u8>{
+    pub fn encode_content(&self) -> Vec<u8> {
         match self {
             Element::Sequence(seq) => seq.encode_content(),
             Element::Set(set) => set.encode_content(),
@@ -464,7 +527,7 @@ impl TLV {
     }
 
     /// Turns Value into Element
-    pub fn to_el(self) -> Element{
+    pub fn to_el(self) -> Element {
         Element::TLV(self)
     }
 }
@@ -528,10 +591,9 @@ impl Set {
         }
     }
 
-    pub fn to_el(self) -> Element{
+    pub fn to_el(self) -> Element {
         Element::Set(self)
     }
-
 }
 
 impl WriteASN1 for Set {
@@ -595,7 +657,7 @@ impl Sequence {
         }
     }
 
-    pub fn to_el(self) -> Element{
+    pub fn to_el(self) -> Element {
         Element::Sequence(self)
     }
 }
@@ -658,7 +720,7 @@ impl OctetString {
         }
     }
 
-    pub fn to_el(self) -> Element{
+    pub fn to_el(self) -> Element {
         Element::OctetString(self)
     }
 }
@@ -717,7 +779,7 @@ impl Implicit {
         }
     }
 
-    pub fn to_el(self) -> Element{
+    pub fn to_el(self) -> Element {
         Element::Implicit(self)
     }
 }

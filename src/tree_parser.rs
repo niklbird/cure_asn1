@@ -1,90 +1,136 @@
+use crate::{
+    asn1_parser::encode_asn1_length,
+    labeling::{label_tree, LabelObject},
+    mutator::{self, Mutation},
+    rpki_utils::{self, byt_to_in},
+    tree_paths::{CertificatePaths, MFTPaths, ROAPaths},
+};
+use base64::Engine;
+use rand::prelude::SliceRandom;
+use rand::Rng;
 /**
  * Construct a syntax tree from a parsed ASN.1 object.
  */
 use std::{
     collections::{HashMap, HashSet},
-    fmt, str::from_utf8,
+    fmt,
+    str::from_utf8,
 };
-
-use crate::{
-    asn1_parser::encode_asn1_length, labeling::{label_tree, LabelObject}, mutator::{self, Mutation}, rpki_utils::{self, byt_to_in}, tree_paths::{CertificatePaths, MFTPaths, ROAPaths}
-};
-use rand::prelude::SliceRandom;
-use rand::Rng;
 
 use crate::asn1_parser::Element;
-use crate::labeling::{Label, LabelName};
 use crate::labeling::LabelName::{SignedObjectContentInfo, SignedObjectEncapContentInfo};
+use crate::labeling::{Label, LabelName};
+use crate::rpki::ObjectType;
+
+/// The ASN.1 Type Tag
+// #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Copy)]
+// pub struct Tag {
+//     class: TagClass,
+//     constructed: bool,
+// }
+//
+// pub enum TagClass {
+//     Universal(TypeTag),
+//     Application(TypeTag),
+//     ContextSpecific(u8),
+// }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Copy)]
-pub enum Types {
-    Sequence,
-    Set,
-    OctetString,
+pub enum TypeTag {
+    // Boolean = 0x01,
+    Integer = 0x02,
+    BitString = 0x03,
+    OctetString = 0x04,
+    Null = 0x05,
+    ObjectIdentifier = 0x06,
+    // ObjectDescriptor = 0x07,
+    // External = 0x08,
+    // Real = 0x09,
+    // Enumerated = 0x0a,
+    // EmbeddedPdv = 0x0b,
+    // RelativeOid = 0x0c,
+    // Time = 0x0d,
+    Sequence = 0x20 | 0x10, // constructed, 16
+    Set = 0x20 | 0x11,      // constructed, 17
+    // NumericString = 0x12,
+    // PrintableString = 0x13,
+    // TeletexString = 0x14,
+    // VideotexString = 0x15,
+    IA5String = 0x16,
     Implicit,
     TLV,
-    NULL,
-    BitString,
-    ObjectIdentifier,
     Cont0,
-    Integer,
-    IA5String,
 }
 
-impl Types {
+type TypeId = u8;
+
+impl From<TypeId> for TypeTag {
+    fn from(value: TypeId) -> Self {
+        match value {
+            0x30 | 0x50 => Self::Sequence,
+            0x31 | 0x51 => Self::Set,
+            0x4 | 0x24 => Self::OctetString,
+            0xA0 | 0xA1 | 0xA2 | 0xA3 | 0xA4 | 0xA5 | 0xA6 => Self::Implicit,
+            _ => Self::TLV,
+        }
+    }
+}
+
+impl TypeTag {
     pub fn to_type_id(&self) -> u8 {
         match self {
-            Types::Sequence => int_to_hex(30),
-            Types::Set => int_to_hex(31),
-            Types::OctetString => int_to_hex(4),
-            Types::Implicit => int_to_hex(0),
-            Types::TLV => int_to_hex(0),
-            Types::NULL => int_to_hex(5),
-            Types::BitString => int_to_hex(3),
-            Types::ObjectIdentifier => int_to_hex(6),
-            Types::Cont0 => int_to_hex(80),
-            Types::Integer => int_to_hex(2),
-            Types::IA5String => int_to_hex(22),
+            TypeTag::Sequence => int_to_hex(30),
+            TypeTag::Set => int_to_hex(31),
+            TypeTag::OctetString => int_to_hex(4),
+            TypeTag::Implicit => int_to_hex(0),
+            TypeTag::TLV => int_to_hex(0),
+            TypeTag::Null => int_to_hex(5),
+            TypeTag::BitString => int_to_hex(3),
+            TypeTag::ObjectIdentifier => int_to_hex(6),
+            TypeTag::Cont0 => int_to_hex(80),
+            TypeTag::Integer => int_to_hex(2),
+            TypeTag::IA5String => int_to_hex(22),
         }
     }
 
-    pub fn from_type_id(id: u8) -> Types {
+    pub fn from_type_id(id: u8) -> Self {
         match id {
-            0x30 | 0x50 => Types::Sequence,
-            0x31 | 0x51 => Types::Set,
-            0x4 | 0x24 => Types::OctetString,
-            0xA0 | 0xA1 | 0xA2 | 0xA3 | 0xA4 | 0xA5 | 0xA6 => Types::Implicit,
-            _ => Types::TLV,
+            0x30 | 0x50 => Self::Sequence,
+            0x31 | 0x51 => Self::Set,
+            0x4 | 0x24 => Self::OctetString,
+            0xA0 | 0xA1 | 0xA2 | 0xA3 | 0xA4 | 0xA5 | 0xA6 => Self::Implicit,
+            _ => Self::TLV,
         }
     }
 }
 
-pub fn get_type_id(typ: Types) -> u8 {
+pub fn get_type_id(typ: TypeTag) -> u8 {
     match typ {
-        Types::Sequence => int_to_hex(30),
-        Types::Set => int_to_hex(31),
-        Types::OctetString => int_to_hex(4),
-        Types::Implicit => int_to_hex(0),
-        Types::TLV => int_to_hex(0),
-        Types::NULL => int_to_hex(5),
-        Types::BitString => int_to_hex(3),
-        Types::ObjectIdentifier => int_to_hex(6),
-        Types::Cont0 => int_to_hex(80),
-        Types::Integer => int_to_hex(2),
-        Types::IA5String => int_to_hex(22),
+        TypeTag::Sequence => int_to_hex(30),
+        TypeTag::Set => int_to_hex(31),
+        TypeTag::OctetString => int_to_hex(4),
+        TypeTag::Implicit => int_to_hex(0),
+        TypeTag::TLV => int_to_hex(0),
+        TypeTag::Null => int_to_hex(5),
+        TypeTag::BitString => int_to_hex(3),
+        TypeTag::ObjectIdentifier => int_to_hex(6),
+        TypeTag::Cont0 => int_to_hex(80),
+        TypeTag::Integer => int_to_hex(2),
+        TypeTag::IA5String => int_to_hex(22),
     }
 }
 
-pub fn id2type(id: u8) -> Types {
+#[deprecated]
+pub fn id2type(id: u8) -> TypeTag {
     match id {
-        30 => Types::Sequence,
-        31 => Types::Set,
-        4 => Types::OctetString,
-        0 => Types::Implicit,
-        3 => Types::BitString,
-        5 => Types::NULL,
-        6 => Types::ObjectIdentifier,
-        80 => Types::Cont0,
+        30 => TypeTag::Sequence,
+        31 => TypeTag::Set,
+        4 => TypeTag::OctetString,
+        0 => TypeTag::Implicit,
+        3 => TypeTag::BitString,
+        5 => TypeTag::Null,
+        6 => TypeTag::ObjectIdentifier,
+        80 => TypeTag::Cont0,
         _ => panic!("Error when converting id to type"),
     }
 }
@@ -97,7 +143,7 @@ pub struct SpecialTag {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct Token {
-    pub tag: Types,
+    pub tag: TypeTag,
     pub tag_u: u8,
     pub length: usize,
     pub data: Vec<u8>,
@@ -117,7 +163,7 @@ impl Token {
         self.id == 0
     }
 
-    pub fn new(tag: Types, length: usize, data: Vec<u8>, parent: usize, id: usize) -> Token {
+    pub fn new(tag: TypeTag, length: usize, data: Vec<u8>, parent: usize, id: usize) -> Token {
         Token {
             tag: tag.clone(),
             length: length,
@@ -148,7 +194,13 @@ impl Token {
         self.manipulated = true;
     }
 
-    pub fn to_string_val(&self) -> ((u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, Vec<u8>)){
+    pub fn to_string_val(
+        &self,
+    ) -> (
+        (u8, String, Vec<u8>),
+        (usize, String, Vec<u8>),
+        (String, String, Vec<u8>),
+    ) {
         let tag_display = format!("{:?} [tag {}] ", &self.info, self.tag_u);
         let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
@@ -160,15 +212,20 @@ impl Token {
         return (tag_val, len_val, con_val);
     }
 
-
-
     pub fn pretty_bitstring(&self) -> String {
         if let Some(label) = self.info {
             if label.is_ipv4() {
-                return format!("{} (IP {})", hex::encode(&self.data), rpki_utils::parse_ip(&self.data[1..].to_vec(), 2, self.data[0].into()));
-            }
-            else if label.is_ipv6() {
-                return format!("{} (IP {})", hex::encode(&self.data), rpki_utils::parse_ip(&self.data[1..].to_vec(), 1, self.data[0].into()));
+                return format!(
+                    "{} (IP {})",
+                    hex::encode(&self.data),
+                    rpki_utils::parse_ip(&self.data[1..].to_vec(), 2, self.data[0].into())
+                );
+            } else if label.is_ipv6() {
+                return format!(
+                    "{} (IP {})",
+                    hex::encode(&self.data),
+                    rpki_utils::parse_ip(&self.data[1..].to_vec(), 1, self.data[0].into())
+                );
             }
 
             if label.is_signature() {
@@ -179,9 +236,16 @@ impl Token {
         vec_to_bin(&self.data)
     }
 
-    pub fn to_string_pretty(&self) -> ((u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, Vec<u8>)){ 
-        match self.tag_u{
-            0x30 | 0x50 => { // Sequence
+    pub fn to_string_pretty(
+        &self,
+    ) -> (
+        (u8, String, Vec<u8>),
+        (usize, String, Vec<u8>),
+        (String, String, Vec<u8>),
+    ) {
+        match self.tag_u {
+            0x30 | 0x50 => {
+                // Sequence
                 let dv = if self.tag_u == self.visual_tag[0] {
                     "SEQUENCE".to_string()
                 } else {
@@ -198,13 +262,14 @@ impl Token {
                 let con_val = ("".to_string(), con_display, vec![]);
                 return (tag_val, len_val, con_val);
             }
-            0x31 | 0x51 => { // Set
+            0x31 | 0x51 => {
+                // Set
                 let dv = if self.tag_u == self.visual_tag[0] {
                     "SET".to_string()
                 } else {
                     format!("[tag {} (original SET)]", self.visual_tag[0])
                 };
-                
+
                 let tag_display = format!("{:?}  {} ", &self.info, dv);
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
@@ -215,13 +280,14 @@ impl Token {
                 let con_val = ("".to_string(), con_display, vec![]);
                 return (tag_val, len_val, con_val);
             }
-            0x04 | 0x24 => { // Octetstring
+            0x04 | 0x24 => {
+                // Octetstring
                 let dv = if self.tag_u == self.visual_tag[0] {
                     "OCTETSTRING".to_string()
                 } else {
                     format!("[tag {} (original OCTETSTRING)]", self.visual_tag[0])
                 };
-                
+
                 let tag_display = format!("{:?}  {} ", &self.info, dv);
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
@@ -231,21 +297,22 @@ impl Token {
                 let con_display = format!("{}", hex::encode(&self.data));
 
                 // If it has children -> Content will be included over children
-                let val = match self.children.len() > 0{
+                let val = match self.children.len() > 0 {
                     true => vec![],
-                    false => self.data.clone()
+                    false => self.data.clone(),
                 };
 
                 let con_val = (hex::encode(&val), con_display, val);
                 return (tag_val, len_val, con_val);
             }
-            0x06 | 0x26 => { // Oid
+            0x06 | 0x26 => {
+                // Oid
                 let dv = if self.tag_u == self.visual_tag[0] {
                     "OBJECT IDENTIFIER".to_string()
                 } else {
                     format!("[tag {} (original OBJECT IDENTIFIER)]", self.visual_tag[0])
                 };
-                
+
                 let tag_display = format!("{:?}  {} ", &self.info, dv);
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
@@ -255,9 +322,9 @@ impl Token {
                 let con_display = format!("{}", decode_oid_to_string(&self.data));
                 let con_val = (con_display.clone(), con_display, self.data.clone());
                 return (tag_val, len_val, con_val);
-
             }
-            0x02 | 0x22 => { // Integer
+            0x02 | 0x22 => {
+                // Integer
                 let dv = if self.tag_u == self.visual_tag[0] {
                     "INTEGER".to_string()
                 } else {
@@ -273,9 +340,9 @@ impl Token {
                 let con_display = format!("{}", byt_to_in(&self.data));
                 let con_val = (con_display.clone(), con_display, self.data.clone());
                 return (tag_val, len_val, con_val);
-
             }
-            0xA0..=0xA6 => { // Implicit
+            0xA0..=0xA6 => {
+                // Implicit
                 let dv = if self.tag_u == self.visual_tag[0] {
                     "[Implicit]".to_string()
                 } else {
@@ -292,8 +359,9 @@ impl Token {
                 let con_val = ("".to_string(), con_display, vec![]);
                 return (tag_val, len_val, con_val);
             }
-            0x0E | 0x2E => { // TIME
-                
+            0x0E | 0x2E => {
+                // TIME
+
                 let dv = if self.tag_u == self.visual_tag[0] {
                     "TIME".to_string()
                 } else {
@@ -305,10 +373,9 @@ impl Token {
                 let len_display = "".to_string();
                 let len_val = (self.length, len_display, encode_asn1_length(self.length));
 
-
                 let data_dec = from_utf8(&self.data).unwrap_or_default();
                 let parsed = chrono::DateTime::parse_from_rfc3339(data_dec);
-                if parsed.is_err(){
+                if parsed.is_err() {
                     return self.to_string_val();
                 }
 
@@ -319,7 +386,8 @@ impl Token {
 
                 return (tag_val, len_val, con_val);
             }
-            0x17 | 0x37 => { // UTC Time
+            0x17 | 0x37 => {
+                // UTC Time
                 let dv = if self.tag_u == self.visual_tag[0] {
                     "UTCTime".to_string()
                 } else {
@@ -331,10 +399,9 @@ impl Token {
                 let len_display = "".to_string();
                 let len_val = (self.length, len_display, encode_asn1_length(self.length));
 
-
                 let data_dec = from_utf8(&self.data).unwrap_or_default();
                 let parsed = chrono::DateTime::parse_from_str(data_dec, "%Y-%m-%d %H:%M:%S");
-                if parsed.is_err(){
+                if parsed.is_err() {
                     return self.to_string_val();
                 }
 
@@ -344,8 +411,9 @@ impl Token {
                 let con_val = (con_display.clone(), con_display, self.data.clone());
 
                 return (tag_val, len_val, con_val);
-                }
-            0x18 | 0x38 => { // GeneralizedTime
+            }
+            0x18 | 0x38 => {
+                // GeneralizedTime
                 let dv = if self.tag_u == self.visual_tag[0] {
                     "GeneralizedTime".to_string()
                 } else {
@@ -357,10 +425,9 @@ impl Token {
                 let len_display = "".to_string();
                 let len_val = (self.length, len_display, encode_asn1_length(self.length));
 
-
                 let data_dec = from_utf8(&self.data).unwrap_or_default();
                 let parsed = chrono::DateTime::parse_from_str(&data_dec, "%Y-%m-%d %H:%M:%S");
-                if parsed.is_err(){
+                if parsed.is_err() {
                     return self.to_string_val();
                 }
 
@@ -371,7 +438,8 @@ impl Token {
 
                 return (tag_val, len_val, con_val);
             }
-            0x07 | 0x27 | 0x0C | 0x2C | 0x12..=0x16 | 0x32..=0x36 | 0x19 ..=0x1E | 0x39..=0x3E => { // String
+            0x07 | 0x27 | 0x0C | 0x2C | 0x12..=0x16 | 0x32..=0x36 | 0x19..=0x1E | 0x39..=0x3E => {
+                // String
                 let dv = if self.tag_u == self.visual_tag[0] {
                     "String".to_string()
                 } else {
@@ -386,10 +454,15 @@ impl Token {
                 let tmp = hex::encode(&self.data);
                 let data_dec = from_utf8(&self.data).unwrap_or(&tmp);
 
-                let con_val = (data_dec.to_string(), data_dec.to_string(), self.data.clone());
+                let con_val = (
+                    data_dec.to_string(),
+                    data_dec.to_string(),
+                    self.data.clone(),
+                );
                 return (tag_val, len_val, con_val);
-            } 
-            0x03 | 0x23 => { // BIT STRING
+            }
+            0x03 | 0x23 => {
+                // BIT STRING
                 let dv = if self.tag_u == self.visual_tag[0] {
                     "Bit String".to_string()
                 } else {
@@ -398,28 +471,108 @@ impl Token {
                 let tag_display = format!("{:?}  {} ", &self.info, dv);
 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
-                let len_display = format!("({} bits)", (self.data.len() - 1) * 8 - self.data[0] as usize);
+                let len_display = format!(
+                    "({} bits)",
+                    (self.data.len() - 1) * 8 - self.data[0] as usize
+                );
                 let len_val = (self.length, len_display, encode_asn1_length(self.length));
 
                 let encoded = self.pretty_bitstring();
                 let bs = vec_to_bin(&self.data);
                 let con_val = (bs.to_string(), encoded.to_string(), self.data.clone());
                 return (tag_val, len_val, con_val);
-            }   
+            }
             _ => {
                 return self.to_string_val();
             }
         }
-
-
     }
 }
 
+// TODO: could be merged with ObjectType
+#[derive(Copy, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, Debug)]
+pub enum Asn1ObjType {
+    SignedObj(SObjType),
+    /// Certificate [RFC6487](https://datatracker.ietf.org/doc/rfc6487/)
+    Cert,
+    /// Certificate Revocation List [RFC6487](https://datatracker.ietf.org/doc/rfc6487)
+    Crl,
+    /// iRoa
+    IRoa,
+}
+
+impl Asn1ObjType {
+    pub(crate) fn is_signed_obj(&self) -> bool {
+        match self {
+            Self::SignedObj(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn filename_extension(&self) -> &str {
+        match self {
+            Self::SignedObj(ect) => ect.filename_extension(),
+            Self::Cert => "cer",
+            Self::Crl => "crl",
+            Self::IRoa => "iroa",
+        }
+    }
+}
+
+impl From<ObjectType> for Option<Asn1ObjType> {
+    fn from(value: ObjectType) -> Self {
+        use {Asn1ObjType::*, SObjType::*};
+        match value {
+            ObjectType::ROA => Some(SignedObj(Roa)),
+            ObjectType::MFT => Some(SignedObj(Mft)),
+            ObjectType::CERTCA => Some(Cert),
+            ObjectType::CERTEE => Some(Cert),
+            ObjectType::CERTROOT => Some(Cert),
+            ObjectType::CRL => Some(Crl),
+            ObjectType::ASA => Some(SignedObj(Aspa)),
+            ObjectType::GBR => Some(SignedObj(Gbr)),
+            ObjectType::UNKNOWN => None,
+            ObjectType::NOTIFICATION => None,
+            ObjectType::SNAPSHOT => None,
+            ObjectType::DELTA => None,
+            ObjectType::IROA => Some(IRoa),
+            ObjectType::IMFT => None,
+            ObjectType::ICRL => None,
+            ObjectType::IGBR => None,
+            ObjectType::ICER => None,
+        }
+    }
+}
+
+#[derive(Copy, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, Debug)]
+pub enum SObjType {
+    /// Route Origin Authorization [RFC9582](https://datatracker.ietf.org/doc/rfc9582/)
+    Roa,
+    /// Manifest [RFC9286](https://datatracker.ietf.org/doc/rfc9286/)
+    Mft,
+    /// Ghostbuster Record [RFC6493](https://datatracker.ietf.org/doc/rfc6493/)
+    Gbr,
+    /// Autonomous System Authorization [RFC Draft](https://datatracker.ietf.org/doc/draft-ietf-sidrops-aspa-profile/)
+    Aspa,
+}
+
+impl SObjType {
+    pub fn filename_extension(&self) -> &str {
+        match self {
+            Self::Roa => "roa",
+            Self::Mft => "mft",
+            Self::Gbr => "gbr",
+            Self::Aspa => "asa",
+        }
+    }
+}
+
+/// An arbitrary representation of an ASN.1 token tree.
 #[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct Tree {
     pub tokens: HashMap<usize, Token>,
     pub cur_index: usize,
-    pub obj_type: String,
+    // pub obj_type: Option<TreeObjType>,
 
     // This is only for identifying if a parsed name is issuer or subject in labeling
     pub first_name: bool,
@@ -434,11 +587,10 @@ pub struct Tree {
 }
 
 impl Tree {
-    pub fn new(obj_type: &str) -> Tree {
+    pub fn new() -> Tree {
         Tree {
             tokens: HashMap::new(),
             cur_index: 0,
-            obj_type: obj_type.to_owned(),
             first_name: true,
             first_algoid: true,
             first_rsa: true,
@@ -449,10 +601,22 @@ impl Tree {
         }
     }
 
-    pub fn add_node(&mut self, tag: u8, content: Vec<u8>, parent: usize, label: Option<Label>) -> usize {
+    pub fn add_node(
+        &mut self,
+        tag: u8,
+        content: Vec<u8>,
+        parent: usize,
+        label: Option<Label>,
+    ) -> usize {
         let new_id = self.cur_index + 1;
-        let mut token = Token::new(Types::from_type_id(tag), content.len(), content, parent, new_id);
-        
+        let mut token = Token::new(
+            TypeTag::from_type_id(tag),
+            content.len(),
+            content,
+            parent,
+            new_id,
+        );
+
         token.visual_tag = vec![tag];
         token.tainted = true;
 
@@ -464,7 +628,6 @@ impl Tree {
 
         self.taint_parents(new_id);
 
-        
         self.cur_index += 1;
         self.fix_sizes(true);
         new_id
@@ -483,8 +646,6 @@ impl Tree {
     pub fn get_root(&self) -> &Token {
         self.tokens.get(&self.root_id).unwrap()
     }
-
-
 
     pub fn get_node(&self, id: usize) -> Option<&Token> {
         self.tokens.get(&id)
@@ -515,7 +676,7 @@ impl Tree {
         } else {
             let mut list = Vec::with_capacity(self.tokens.len());
             for tok in self.tokens.keys() {
-                if &self.tokens[tok].tag == &Types::TLV {
+                if &self.tokens[tok].tag == &TypeTag::TLV {
                     list.push(tok);
                 }
             }
@@ -682,7 +843,6 @@ impl Tree {
             self.labels.insert(*label, node_id);
         }
 
-
         // Find next insertion location
         let max_key = self.tokens.keys().max().unwrap();
         let mut insertion_location = max_key + 1;
@@ -718,7 +878,7 @@ impl Tree {
             let prev_children = self.tokens[&new_id].children.clone();
             let prev_parent = self.tokens[&new_id].parent;
 
-            tok.tag = Types::TLV;
+            tok.tag = TypeTag::TLV;
             tok.tag_u = 0;
             tok.id = new_id;
             tok.children = prev_children;
@@ -851,72 +1011,80 @@ impl Tree {
         self.tokens.insert(id, new);
     }
 
-    pub fn generate_tree(obj: Element, typ: String) -> Tree {
+    pub fn generate_tree(obj: Element, typ: Option<Asn1ObjType>) -> Tree {
         Tree::generate_tree_index(obj, typ, 0)
     }
 
-    pub fn get_all_oids(&self) -> HashSet<String>{
+    pub fn get_all_oids(&self) -> HashSet<String> {
         let mut oids = HashSet::new();
-        for t in self.tokens.values(){
-            if t.tag_u == 6{
+        for t in self.tokens.values() {
+            if t.tag_u == 6 {
                 oids.insert(decode_oid_to_string(&t.data));
             }
         }
         oids
     }
 
-    pub fn infer_type(tree: &Tree) -> String{
+    /// Given a ASN.1 token `tree`, infer the [`Asn1ObjType`] of this tree based on the contained
+    /// OIDs.
+    pub fn infer_type(tree: &Self) -> Option<Asn1ObjType> {
         let all_oids = tree.get_all_oids();
 
-        let mut  known_oids = HashMap::new();
-        known_oids.insert("1.2.840.113549.1.9.16.1.24", "roa");
-        known_oids.insert("1.2.840.113549.1.9.16.1.26", "mft");
-        known_oids.insert("1.2.840.113549.1.9.16.1.35", "gbr");
-        known_oids.insert("1.2.840.113549.1.9.16.1.49", "asa");
+        let mut known_oids = HashMap::new();
+        known_oids.insert("1.2.840.113549.1.9.16.1.24", SObjType::Roa);
+        known_oids.insert("1.2.840.113549.1.9.16.1.26", SObjType::Mft);
+        known_oids.insert("1.2.840.113549.1.9.16.1.35", SObjType::Gbr);
+        known_oids.insert("1.2.840.113549.1.9.16.1.49", SObjType::Aspa);
 
-
-
-        if all_oids.contains("1.2.840.113549.1.7.2"){ // SignedData
-            for oid in known_oids.keys(){
-                if all_oids.contains(*oid){
-                    return known_oids.get(oid).unwrap().to_string();
+        if all_oids.contains("1.2.840.113549.1.7.2") {
+            // SignedData
+            for (&oid, &val) in known_oids.iter() {
+                if all_oids.contains(oid) {
+                    return Some(Asn1ObjType::SignedObj(val));
                 }
             }
 
-            return "cms".to_string();
+            return None; //  "cms".to_string(); // TODO @Niklas is "cms" used?
         }
 
-        if all_oids.contains("2.5.29.20"){ // CRL Number Extension
-            return "crl".to_string();
+        if all_oids.contains("2.5.29.20") {
+            // CRL Number Extension
+            return Some(Asn1ObjType::Crl);
         }
 
-        if tree.get_root().children.len() == 3{
+        if tree.get_root().children.len() == 3 {
             let children = tree.get_root().children.clone();
-            if tree.tokens.get(&children[0]).unwrap().children.len() > 3 && tree.tokens.get(&children[2]).unwrap().tag_u == 3 && tree.tokens.get(&children[2]).unwrap().data.len() > 255{
-                return "cer".to_string();
+            if tree.tokens.get(&children[0]).unwrap().children.len() > 3
+                && tree.tokens.get(&children[2]).unwrap().tag_u == 3
+                && tree.tokens.get(&children[2]).unwrap().data.len() > 255
+            {
+                return Some(Asn1ObjType::Cert);
             }
-        } 
-
-        return "".to_string();
+        }
+        None
     }
 
-    pub fn generate_tree_index(obj: Element, typ: String, start_index: usize) -> Tree {
-        let mut tree = Tree::new(&typ);
+    pub fn generate_tree_index(
+        obj: Element,
+        mut typ: Option<Asn1ObjType>,
+        start_index: usize,
+    ) -> Tree {
+        let mut tree = Tree::new();
         tree.cur_index = start_index;
         tree.root_id = start_index;
         tree.create_tree(obj, None);
         tree.fix_sizes(false);
-        
-        if typ == "".to_string(){
-            tree.obj_type = Tree::infer_type(&tree);
+
+        if typ.is_none() {
+            // tree.obj_type = Tree::infer_type(&tree);
+            typ = Tree::infer_type(&tree);
         }
-        
-        if tree.obj_type != ""{
-            tree.label_tree();
+
+        if let Some(obj_type) = typ {
+            tree.label_tree(obj_type);
         }
         tree
     }
-
 
     fn create_tree(&mut self, obj: Element, parent_id: Option<usize>) -> usize {
         let parent = match parent_id {
@@ -927,7 +1095,8 @@ impl Tree {
             Element::Sequence(seq) => {
                 let new_id = self.cur_index;
 
-                let mut token = Token::new(Types::Sequence, seq.total_len, vec![], parent, new_id);
+                let mut token =
+                    Token::new(TypeTag::Sequence, seq.total_len, vec![], parent, new_id);
                 token.tag_u = seq.tag;
 
                 self.cur_index += 1;
@@ -942,7 +1111,7 @@ impl Tree {
             Element::TLV(t) => {
                 let new_id = self.cur_index;
 
-                let mut token = Token::new(Types::TLV, t.total_len, t.value, parent, new_id);
+                let mut token = Token::new(TypeTag::TLV, t.total_len, t.value, parent, new_id);
                 token.tag_u = t.tag;
                 token.visual_tag = vec![t.tag];
 
@@ -955,7 +1124,7 @@ impl Tree {
             Element::Set(set) => {
                 let new_id = self.cur_index;
 
-                let mut token = Token::new(Types::Set, set.total_len, vec![], parent, new_id);
+                let mut token = Token::new(TypeTag::Set, set.total_len, vec![], parent, new_id);
                 token.tag_u = set.tag;
 
                 self.cur_index += 1;
@@ -971,7 +1140,8 @@ impl Tree {
             Element::OctetString(o) => {
                 let new_id = self.cur_index;
 
-                let mut token = Token::new(Types::OctetString, o.total_len, vec![], parent, new_id);
+                let mut token =
+                    Token::new(TypeTag::OctetString, o.total_len, vec![], parent, new_id);
                 token.tag_u = o.tag;
 
                 self.cur_index += 1;
@@ -990,7 +1160,7 @@ impl Tree {
             Element::Implicit(im) => {
                 let new_id = self.cur_index;
 
-                let mut token = Token::new(Types::Implicit, im.total_len, vec![], parent, new_id);
+                let mut token = Token::new(TypeTag::Implicit, im.total_len, vec![], parent, new_id);
                 token.tag_u = im.tag;
                 token.visual_tag = vec![im.tag.into()];
 
@@ -1013,8 +1183,8 @@ impl Tree {
         }
         let root = self.get_root();
         let mut data = self.encode_node(root);
-        if self.additional_info.contains_key("min_size"){
-            while data.len() < self.additional_info.get("min_size").unwrap()[0].into(){
+        if self.additional_info.contains_key("min_size") {
+            while data.len() < self.additional_info.get("min_size").unwrap()[0].into() {
                 data.push(0);
             }
         }
@@ -1022,25 +1192,21 @@ impl Tree {
         data
     }
 
-    pub fn label_tree(&mut self) {
-        let label_obj = label_tree(&self.obj_type, &self);
+    pub fn encode_b64(&self) -> String {
+        base64::engine::general_purpose::STANDARD_NO_PAD.encode(&self.encode())
+    }
 
-        if label_obj.is_none() {
-            // Unknown Object Type -> Cant label
-            return;
+    pub fn label_tree(&mut self, obj_type: Asn1ObjType) {
+        if let Some(label_obj) = label_tree(obj_type, &self) {
+            self.label_tree_rec(self.root_id, &label_obj);
         }
-
-        let label_obj = label_obj.unwrap();
-        self.label_tree_rec(self.root_id, &label_obj);
     }
 
     pub fn label_tree_rec(&mut self, id: usize, label_obj: &LabelObject) {
         // Some labels might need to be generated dynamically (adapted to the tree structure)
         // -> Call the label function if available to generate the labels for the current node dynamically
         match label_obj {
-            LabelObject::Label { label, children } => {
-                self.label_children(id, *label, children)
-            }
+            LabelObject::Label { label, children } => self.label_children(id, *label, children),
             LabelObject::Function { label_function } => {
                 let (label, children) = label_function(id, self);
                 self.label_children(id, label, &children)
@@ -1068,7 +1234,10 @@ impl Tree {
     pub fn fix_sizes(&mut self, mandatory_taint: bool) -> usize {
         let root_id = self.root_id;
         let (child_len_full, child_data_len) = self.fix_sizes_rec(&root_id, mandatory_taint);
-        self.tokens.get_mut(&self.root_id).unwrap().set_length(child_data_len);
+        self.tokens
+            .get_mut(&self.root_id)
+            .unwrap()
+            .set_length(child_data_len);
         return child_len_full;
     }
 
@@ -1116,7 +1285,7 @@ impl Tree {
         }
 
         match token.tag {
-            Types::Sequence => {
+            TypeTag::Sequence => {
                 if !token.data.is_empty() {
                     data.extend_from_slice(&token.data);
                 }
@@ -1126,7 +1295,7 @@ impl Tree {
                 }
                 return data;
             }
-            Types::TLV => {
+            TypeTag::TLV => {
                 data.extend_from_slice(&token.data);
                 for id in &token.children {
                     let item = self.get_node(*id).unwrap();
@@ -1134,14 +1303,14 @@ impl Tree {
                 }
                 return data;
             }
-            Types::Set => {
+            TypeTag::Set => {
                 for id in &token.children {
                     let item = self.get_node(*id).unwrap();
                     data.extend(self.encode_node(item));
                 }
                 return data;
             }
-            Types::OctetString => {
+            TypeTag::OctetString => {
                 if token.children.is_empty() {
                     data.extend_from_slice(&token.data);
                     return data;
@@ -1150,14 +1319,14 @@ impl Tree {
                 }
                 return data;
             }
-            Types::Implicit => {
+            TypeTag::Implicit => {
                 for id in &token.children {
                     let item = self.get_node(*id).unwrap();
                     data.extend(self.encode_node(item));
                 }
                 return data;
             }
-            Types::BitString => {
+            TypeTag::BitString => {
                 if token.children.is_empty() {
                     data.extend(token.data.clone());
                     return data;
@@ -1166,7 +1335,7 @@ impl Tree {
                 }
                 return data;
             }
-            Types::ObjectIdentifier => {
+            TypeTag::ObjectIdentifier => {
                 if token.children.is_empty() {
                     data.extend(token.data.clone());
                     return data;
@@ -1175,11 +1344,11 @@ impl Tree {
                 }
                 return data;
             }
-            Types::NULL => {
+            TypeTag::Null => {
                 data.extend(token.data.clone());
                 return data;
             }
-            Types::Cont0 => {
+            TypeTag::Cont0 => {
                 if token.children.is_empty() {
                     data.extend(token.data.clone());
                     return data;
@@ -1188,15 +1357,15 @@ impl Tree {
                 }
                 return data;
             }
-            Types::Integer => {
+            TypeTag::Integer => {
                 data.extend(token.data.clone());
                 for id in &token.children {
                     let item = self.get_node(*id).unwrap();
                     data.extend(self.encode_node(item));
                 }
                 return data;
-            },
-            Types::IA5String => {
+            }
+            TypeTag::IA5String => {
                 if token.children.is_empty() {
                     data.extend(token.data.clone());
                     return data;
@@ -1204,7 +1373,7 @@ impl Tree {
                     data.extend(self.encode_node(self.get_node(token.children[0]).unwrap()));
                 }
                 return data;
-            },
+            }
         }
     }
 
@@ -1233,7 +1402,7 @@ impl Tree {
         let mut s = String::new();
 
         match node.tag {
-            Types::Sequence => {
+            TypeTag::Sequence => {
                 if node.children.len() > 0 {
                     for item in &node.children {
                         // Recursive handling of the sequence items, which are also `GenericObject`s.
@@ -1242,7 +1411,8 @@ impl Tree {
                         s += &res.1;
                     }
                 } else {
-                    let descr = node.info
+                    let descr = node
+                        .info
                         .map(|l| format!("{}.{}", l.name.short_label(), l.index))
                         .unwrap_or_else(|| node_id.to_string());
 
@@ -1251,8 +1421,9 @@ impl Tree {
                 }
                 return (c, s);
             }
-            Types::TLV => {
-                let descr = node.info
+            TypeTag::TLV => {
+                let descr = node
+                    .info
                     .map(|l| format!("{}.{}", l.name.short_label(), l.index))
                     .unwrap_or_else(|| node_id.to_string());
                 if node.children.len() > 0 {
@@ -1265,16 +1436,10 @@ impl Tree {
                     return (c, s);
                 }
 
-                let s = format!(
-                    "{} [{}] Typ{} {:?}\n",
-                    space,
-                    descr,
-                    node.tag_u,
-                    node.data
-                );
+                let s = format!("{} [{}] Typ{} {:?}\n", space, descr, node.tag_u, node.data);
                 return (1, s);
             }
-            Types::Set => {
+            TypeTag::Set => {
                 for item in &node.children {
                     // Recursive handling of the sequence items, which are also `GenericObject`s.
                     let res = self.to_string(*item, cur_depth + 1);
@@ -1283,8 +1448,9 @@ impl Tree {
                 }
                 return (c, s);
             }
-            Types::OctetString => {
-                let descr = node.info
+            TypeTag::OctetString => {
+                let descr = node
+                    .info
                     .map(|l| format!("{}.{}", l.name.short_label(), l.index))
                     .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
@@ -1297,7 +1463,7 @@ impl Tree {
                     return (c, s);
                 }
             }
-            Types::Implicit => {
+            TypeTag::Implicit => {
                 if node.children.is_empty() {
                     s += &format!("{} [{}] Typ Imp {:?}\n", space, node_id, node.data);
                     return (1, s);
@@ -1308,8 +1474,9 @@ impl Tree {
                     return (c, s);
                 }
             }
-            Types::BitString => {
-                let descr = node.info
+            TypeTag::BitString => {
+                let descr = node
+                    .info
                     .map(|l| format!("{}.{}", l.name.short_label(), l.index))
                     .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
@@ -1322,8 +1489,9 @@ impl Tree {
                     return (c, s);
                 }
             }
-            Types::ObjectIdentifier => {
-                let descr = node.info
+            TypeTag::ObjectIdentifier => {
+                let descr = node
+                    .info
                     .map(|l| format!("{}.{}", l.name.short_label(), l.index))
                     .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
@@ -1336,8 +1504,9 @@ impl Tree {
                     return (c, s);
                 }
             }
-            Types::NULL => {
-                let descr = node.info
+            TypeTag::Null => {
+                let descr = node
+                    .info
                     .map(|l| format!("{}.{}", l.name.short_label(), l.index))
                     .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
@@ -1350,8 +1519,9 @@ impl Tree {
                     return (c, s);
                 }
             }
-            Types::Cont0 => {
-                let descr = node.info
+            TypeTag::Cont0 => {
+                let descr = node
+                    .info
                     .map(|l| format!("{}.{}", l.name.short_label(), l.index))
                     .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
@@ -1364,8 +1534,9 @@ impl Tree {
                     return (c, s);
                 }
             }
-            Types::Integer => {
-                let descr = node.info
+            TypeTag::Integer => {
+                let descr = node
+                    .info
                     .map(|l| format!("{}.{}", l.name.short_label(), l.index))
                     .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
@@ -1377,9 +1548,10 @@ impl Tree {
                     s += &res.1;
                     return (c, s);
                 }
-            },
-            Types::IA5String => {
-                let descr = node.info
+            }
+            TypeTag::IA5String => {
+                let descr = node
+                    .info
                     .map(|l| format!("{}.{}", l.name.short_label(), l.index))
                     .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
@@ -1391,7 +1563,7 @@ impl Tree {
                     s += &res.1;
                     return (c, s);
                 }
-            },
+            }
         }
     }
 
@@ -1399,7 +1571,8 @@ impl Tree {
         self.labels.get(label).and_then(|&id| self.get_node(id))
     }
 
-    pub fn get_nodes_by_label_name(&self, _label_name: LabelName) -> Vec<&Token> { // TODO slice?
+    pub fn get_nodes_by_label_name(&self, _label_name: LabelName) -> Vec<&Token> {
+        // TODO slice?
         todo!()
     }
 
@@ -1429,11 +1602,11 @@ impl Tree {
         match path.len() {
             0 => None,
             1 => (path[0] == SignedObjectContentInfo.into()).then_some(self.root_id),
-            _ => self.get_id_by_path_rec(self.get_root(), &path[1..])
+            _ => self.get_id_by_path_rec(self.get_root(), &path[1..]),
         }
     }
 
-    pub fn set_data(&mut self, path: &[Label], data: &Vec<u8>, tag_type: Types) {
+    pub fn set_data(&mut self, path: &[Label], data: &Vec<u8>, tag_type: TypeTag) {
         let id = self.get_id_by_path(path).unwrap();
         let node = self.get_node_mut(id).unwrap();
         node.data = data.to_vec();
@@ -1502,7 +1675,13 @@ impl Tree {
         return false;
     }
 
-    pub fn set_element_by_label(&mut self, label: &Label, element: Element, self_taint: bool, manipulated: bool) -> bool{
+    pub fn set_element_by_label(
+        &mut self,
+        label: &Label,
+        element: Element,
+        self_taint: bool,
+        manipulated: bool,
+    ) -> bool {
         let id = self.labels.get(label);
         if id.is_some() {
             let id = id.unwrap();
@@ -1514,20 +1693,19 @@ impl Tree {
                 });
             }
 
-
             let new_root = self.tokens.keys().max().unwrap_or(&0) + 1; // Insert new tokens behind existing tokens
 
-            // Concept: Turn the new element structure into tree (token ids chosen so they dont collide with existing tree), then add the new tokens into this existing tree. 
-            // To add, the interface token, i.e. the token thats added to the existing tree to connect to new tree needs to have the correct id (the id of the token its replacing).
-            let tree = Tree::generate_tree_index(element, "".to_string(), new_root);
+            // Concept: Turn the new element structure into tree (token ids chosen so they don't collide with existing tree), then add the new tokens into this existing tree.
+            // To add, the interface token, i.e. the token that's added to the existing tree to connect to new tree needs to have the correct id (the id of the token its replacing).
+            let tree = Tree::generate_tree_index(element, None, new_root);
 
-            for token in tree.tokens.values(){
-                if token.id == new_root{
+            for token in tree.tokens.values() {
+                if token.id == new_root {
                     continue;
                 }
 
                 let mut new_token = token.clone();
-                if new_token.parent == new_root{
+                if new_token.parent == new_root {
                     new_token.parent = *id;
                 }
                 self.tokens.insert(new_token.id, new_token);
@@ -1561,10 +1739,13 @@ impl Tree {
     fn print_token(&self, t: &Token, recursion: usize) {
         let children = &t.children;
         let output: String = "\t".repeat(recursion);
-        println!("{} {} {:?} {} {} {} {} {:?}", output, t.id, t.info, t.length, t.visual_length, t.tainted, t.manipulated, t.data);
+        println!(
+            "{} {} {:?} {} {} {} {} {:?}",
+            output, t.id, t.info, t.length, t.visual_length, t.tainted, t.manipulated, t.data
+        );
         for c in children {
             if let Some(node) = self.get_node(*c) {
-                self.print_token(&node, recursion+1);
+                self.print_token(&node, recursion + 1);
             }
         }
     }
@@ -1581,40 +1762,49 @@ impl Tree {
         return pdata_len - data_len;
     }
 
-    pub fn fix_octetstrings(&mut self, typ: &str) {
+    pub fn fix_octetstrings(&mut self, typ: Asn1ObjType) {
+        use {Asn1ObjType::*, SObjType::*};
         match typ {
-            "roa" => {
+            SignedObj(Roa) => {
                 let paths = ROAPaths::init();
-                for p in [paths.cert_paths.ski, paths.sig_inf_paths.msg_dgst, paths.sig_inf_paths.signature] {
+                for p in [
+                    paths.cert_paths.ski,
+                    paths.sig_inf_paths.msg_dgst,
+                    paths.sig_inf_paths.signature,
+                ] {
                     let id = self.get_id_by_path(&p).unwrap();
                     let n = self.get_node(id).unwrap();
                     let data = self.encode_node_content(n, true);
                     self.deep_delete_children(id);
-                    self.set_data(&p, &data, Types::OctetString);
+                    self.set_data(&p, &data, TypeTag::OctetString);
                 }
-            },
-            "cer" => {
+            }
+            Cert => {
                 let paths = CertificatePaths::init_cert();
                 for p in [paths.ski] {
                     let id = self.get_id_by_path(&p).unwrap();
                     let n = self.get_node(id).unwrap();
                     let data = self.encode_node_content(n, true);
                     self.deep_delete_children(id);
-                    self.set_data(&p, &data, Types::OctetString);
+                    self.set_data(&p, &data, TypeTag::OctetString);
                 }
-            },
-            "crl" => {},
-            "mft" => {
+            }
+            Crl => {}
+            SignedObj(Mft) => {
                 let paths = MFTPaths::init();
-                for p in [paths.cert_paths.ski, paths.sig_inf_paths.msg_dgst, paths.sig_inf_paths.signature] {
+                for p in [
+                    paths.cert_paths.ski,
+                    paths.sig_inf_paths.msg_dgst,
+                    paths.sig_inf_paths.signature,
+                ] {
                     let id = self.get_id_by_path(&p).unwrap();
                     let n = self.get_node(id).unwrap();
                     let data = self.encode_node_content(n, true);
                     self.deep_delete_children(id);
-                    self.set_data(&p, &data, Types::OctetString);
+                    self.set_data(&p, &data, TypeTag::OctetString);
                 }
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 }
@@ -1716,10 +1906,10 @@ fn int_to_hex(v: u8) -> u8 {
     hex_integer
 }
 
-
 fn vec_to_bin(bitstring: &Vec<u8>) -> String {
     let bitstring = &bitstring[1..];
-    bitstring.iter()
+    bitstring
+        .iter()
         .map(|byte| format!("{:08b}", byte)) // Convert each byte to an 8-bit binary string
         .collect::<Vec<String>>() // Collect into a vector of strings
         .join("") // Join them together
@@ -1727,12 +1917,55 @@ fn vec_to_bin(bitstring: &Vec<u8>) -> String {
 
 #[cfg(test)]
 mod test {
+    use crate::rpki::ObjectType;
     use crate::tree_parser::int_to_hex;
+    use base64::Engine;
+    use serde::__private::from_utf8_lossy;
 
     #[test]
     fn test_int_to_hex() {
         for i in 0..20 {
-            println!("{}", int_to_hex(i));
+            println!("{} {0:x}", int_to_hex(i));
         }
+    }
+
+    #[test]
+    fn test_tree() {
+        let encoded = "MIIGajCCBVKgAwIBAgIUAQ0Mn0MoWEm/N8RwcTfl5ngiCgAwDQYJKoZIhvcNAQELBQAwLzE\
+        tMCsGA1UEAxMkNWU0YTIzZWEtZTgwYS00MDNlLWIwOGMtMjE3MWRhMjE1N2QzMB4XDTI1MDUwNTAwNDUzNVoXDTI3MD\
+        gwODAwNDUzNVowLzEtMCsGA1UEAxMkMDM1NzI3MmMtYTc5YS00NWJmLTk1ODYtOTJkZDQ5ZWYzMjIzMIIBIjANBgkqh\
+        kiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmh7Vt6pWeKj3En/dL2k3uuyQA+/x7dHIQb/K9DpSU6ROR4xRB13okYgkEUOA\
+        z9sv5BS8TUVR09S+qg6K/br6aUuS+7WrZzqfjRDRjf6G0lxZryi/JO2v7cNmG+uqX34dOpCuVJP8fdcq1bkWl2bArVN\
+        Cb6Mcdm0Z0SEM0HzqmaburgVtdD+OKohl6vdRvaTDSGj1WBLUdt4iuHG98ia0lBR9QPwefRbBfdlNpaOassJ/oG0VMz\
+        Ik4QJKgoRjyjeBxS9g92rbWGUbCqQNGQNSOJXCtEDhN9HurNRFyZqhawrfOJ1CPMBcFRQ+Ou6jHCMsIuGcmIfaedEa4\
+        KGK7l6dewIDAQABo4IDfDCCA3gwHQYDVR0OBBYEFHx695x633xL6M6oVG3zqmYgNdo6MIIBfQYIKwYBBQUHAQsEggFv\
+        MIIBazCBhAYIKwYBBQUHMAWGeHJzeW5jOi8vcnBraS5hcmluLm5ldC9yZXBvc2l0b3J5L2FyaW4tcnBraS10YS81ZTR\
+        hMjNlYS1lODBhLTQwM2UtYjA4Yy0yMTcxZGEyMTU3ZDMvMDM1NzI3MmMtYTc5YS00NWJmLTk1ODYtOTJkZDQ5ZWYzMj\
+        IzLzCBrQYIKwYBBQUHMAqGgaByc3luYzovL3Jwa2kuYXJpbi5uZXQvcmVwb3NpdG9yeS9hcmluLXJwa2ktdGEvNWU0Y\
+        TIzZWEtZTgwYS00MDNlLWIwOGMtMjE3MWRhMjE1N2QzLzAzNTcyNzJjLWE3OWEtNDViZi05NTg2LTkyZGQ0OWVmMzIy\
+        My8wMzU3MjcyYy1hNzlhLTQ1YmYtOTU4Ni05MmRkNDllZjMyMjMubWZ0MDIGCCsGAQUFBzANhiZodHRwczovL3JyZHA\
+        uYXJpbi5uZXQvbm90aWZpY2F0aW9uLnhtbDAPBgNVHRMBAf8EBTADAQH/MIGPBgNVHR8EgYcwgYQwgYGgf6B9hntyc3\
+        luYzovL3Jwa2kuYXJpbi5uZXQvcmVwb3NpdG9yeS9hcmluLXJwa2ktdGEvNWU0YTIzZWEtZTgwYS00MDNlLWIwOGMtM\
+        jE3MWRhMjE1N2QzLzVlNGEyM2VhLWU4MGEtNDAzZS1iMDhjLTIxNzFkYTIxNTdkMy5jcmwwHwYDVR0jBBgwFoAUYkd+\
+        H9nlJdDXortj2RThTuRUo2QwDgYDVR0PAQH/BAQDAgEGMHIGCCsGAQUFBwEBBGYwZDBiBggrBgEFBQcwAoZWcnN5bmM\
+        6Ly9ycGtpLmFyaW4ubmV0L3JlcG9zaXRvcnkvYXJpbi1ycGtpLXRhLzVlNGEyM2VhLWU4MGEtNDAzZS1iMDhjLTIxNz\
+        FkYTIxNTdkMy5jZXIwIQYIKwYBBQUHAQcBAf8EEjAQMAYEAgABBQAwBgQCAAIFADAVBggrBgEFBQcBCAEB/wQGMASgA\
+        gUAMFQGA1UdIAEB/wRKMEgwRgYIKwYBBQUHDgIwOjA4BggrBgEFBQcCARYsaHR0cHM6Ly93d3cuYXJpbi5uZXQvcmVz\
+        b3VyY2VzL3Jwa2kvY3BzLmh0bWwwDQYJKoZIhvcNAQELBQADggEBACH1ZBP89iD2uHgF+dBwRb/FEfmftxpNzapuQ8n\
+        mZePK592SjiFxMdsLMxcQULU1b0e9o5uSXCriyAf4MwfJtlu++cTx4jlTC3vheGkWqeulHMPTrcgQ/2zKphcTtHpEob\
+        9SKmjFfiwjUc7Gv337C/kWRk3s5TwEy1WoLGaGv8j8LPJ5Jocxz832rHsVDclI9qgujdp/mFnGTKoY0GvM8cERXSW18\
+        IK2GPZotfxp7WpIst6toC+2pWaGLZWM0hTCSf/FZ2Uthc883xIqqyMb0ttxXaXqFRVdpKV9mJSGWWmgPAsK2tRCXz6e\
+        QjpYtwrJ4ql4WlT46LjCPq3drhPJDr4=";
+
+        let content = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .unwrap();
+        let parsed = crate::rpki::parse_rpki_object(&content, ObjectType::CERTCA).unwrap();
+
+        for (i, node) in parsed.content.tokens {
+            println!("{i} {:?} {}", &node, from_utf8_lossy(node.data.as_slice()));
+        }
+
+        println!("{:?}", &parsed.content.labels);
     }
 }

@@ -1,10 +1,17 @@
+//! Helper functions for processing RPKI RRDP XML files.
+
 use base64::{prelude::BASE64_STANDARD, Engine};
 use rand::Rng;
 use sha2::Digest;
 use std::io::Cursor;
-use uuid::Uuid; 
+use uuid::Uuid;
 use xml::writer::{EmitterConfig, XmlEvent};
 
+/// Calculates and returns the SHA-256 hash digest for given `data`.
+///
+/// # Return
+///
+/// The string-encoded hexadecimal value of the hash digest.
 pub fn get_hash(data: Vec<u8>) -> String {
     let hash = sha2::Sha256::digest(&data);
     hex::encode(hash)
@@ -363,13 +370,13 @@ pub fn parse_notification(xml_data: &str) -> Option<XMLNotification> {
         snapshot_uri: snapshot,
         deltas,
     };
-    
+
     return Some(notification);
 }
 
 pub fn parse_snapshot(xml_data: &str) -> Option<XMLSnapshot> {
     let root: Result<minidom::Element, _> = xml_data.parse();
-    
+
     if root.is_err() {
         return None;
     }
@@ -402,7 +409,6 @@ pub fn parse_snapshot(xml_data: &str) -> Option<XMLSnapshot> {
 
     return Some(snapshot);
 }
-
 
 pub fn generate_random_bytes() -> String {
     let mut rng = rand::thread_rng();
