@@ -17,49 +17,54 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use std::error::Error;
-use crate::labeling::Label;
-use crate::labeling::LabelName::{CertExtAia, CertExtAiaCaIssuersUri, CertExtAkiKeyIdentifier, CertExtIpAddressChoice, CertExtSiaCaRepositoryUri, CertExtSiaNotificationUri, CertExtSiaSignedObjectUri, CertFldIssuerAttributeValue, CertFldSubjectAttributeValue, MftNumber, RoaAsid, RoaIpAddressFamilyAddresses, SignatureAlgorithmId, SignerInfoSignerIdentifier};
+use crate::labeling::{Label, LabelName};
 use crate::tree_parser::Token;
+use std::error::Error;
+use std::fmt::Display;
 
-
-pub fn parse_rpki_object(data: &Vec<u8>, typ: &ObjectType) -> Option<RpkiObject> {
-    let root = crate::asn1_parser::parse_asn1_object_slim(data);
-    if root.is_err() {
-        println!("Error during parsing {:?}", root);
-        return None;
-    }
-    let root = root.unwrap();
-    if root.get_len() == 0{
-        return None;
-    }
-
-    let mut tree = Tree::generate_tree(root, typ.to_string());
-    if tree.tokens.len() == 0{
-        return None;
-    }
-    tree.fix_octetstrings(&typ.to_string());
-
-    Some(RpkiObject {
-        content: tree,
-        typ: typ.to_string(),
-    })
+#[deprecated]
+pub fn parse_rpki_object(data: &Vec<u8>, typ: ObjectType) -> Option<RpkiObject> {
+    RpkiObject::parse_as(data, typ)
 }
 
-
+///
 #[derive(Clone, Debug)]
 pub struct RpkiObject {
     pub content: Tree,
-    pub typ: String,
+    pub typ: ObjectType,
 }
 
 /// Implements an RPKI Object
 /// Provides methods to extract common information from the object
 impl RpkiObject {
-    pub fn new(content: Tree, typ: String) -> RpkiObject {
+    pub fn new(content: Tree, typ: ObjectType) -> RpkiObject {
         RpkiObject { content, typ }
     }
 
+    /// Parse bytes into a new [`RpkiObject`]
+    pub fn parse_as(data: &Vec<u8>, typ: ObjectType) -> Option<Self> {
+        let root = match crate::asn1_parser::parse_asn1_object_slim(data) {
+            Ok(root) => root,
+            Err(e) => {
+                println!("Error during parsing {:?}", e);
+                return None;
+            }
+        };
+        if root.get_len() == 0 {
+            return None;
+        }
+
+        let tree_obj_typ = typ.into();
+        let mut tree = Tree::generate_tree(root, tree_obj_typ);
+        if tree.tokens.len() == 0{
+            return None;
+        }
+        if let Some(t) = tree_obj_typ {
+            tree.fix_octetstrings(t);
+        }
+
+        Some(RpkiObject { content: tree, typ })
+    }
 
     pub fn set_notification_uri(&mut self, uri: &str){
         self.content.set_data_by_label("rpkiNotifyURI", uri.as_bytes().to_vec(), true, true);
@@ -100,7 +105,6 @@ impl RpkiObject {
 
     }
 
-
     pub fn get_roa_vrps(&self) -> Option<Vec<String>> {
         let asn = self.get_roa_asn()?;
         let ips = self.get_roa_ips_string();
@@ -112,7 +116,7 @@ impl RpkiObject {
     }
 
     pub fn get_roa_asn(&self) -> Option<u64> {
-        let raw = self.content.get_raw_by_label(&RoaAsid.into())?;
+        let raw = self.content.get_raw_by_label(&LabelName::RoaAsid.into())?;
 
         let mut result: u64 = 0;
         for (_, &byte) in raw.iter().enumerate() {
@@ -277,12 +281,22 @@ impl RpkiObject {
     }
 
     pub fn get_roa_ips_string_v4(&self) -> Vec<String> {
-        let Some(n) = self.content.get_node_by_label(&Label::new(RoaIpAddressFamilyAddresses, 1)) else { return vec![] };
+        let Some(n) = self
+            .content
+            .get_node_by_label(&Label::new(LabelName::RoaIpAddressFamilyAddresses, 1))
+        else {
+            return vec![];
+        };
         self.get_roa_ips_string_from_token(n, 1)
     }
 
     pub fn get_roa_ips_string_v6(&self) -> Vec<String> {
-        let Some(n) = self.content.get_node_by_label(&Label::new(RoaIpAddressFamilyAddresses, 2)) else { return vec![] };
+        let Some(n) = self
+            .content
+            .get_node_by_label(&Label::new(LabelName::RoaIpAddressFamilyAddresses, 2))
+        else {
+            return vec![];
+        };
         self.get_roa_ips_string_from_token(n, 2)
     }
 
@@ -314,7 +328,9 @@ impl RpkiObject {
                     byt_to_in(&ml_nod.data.clone()).try_into().unwrap_or(0)
                 }
             } else {
-                ip.split("/").collect::<Vec<&str>>()[1].parse::<u8>().unwrap()
+                ip.split("/").collect::<Vec<&str>>()[1]
+                    .parse::<u8>()
+                    .unwrap()
             };
 
             if ml == 0 {
@@ -337,7 +353,9 @@ impl RpkiObject {
     /// - An empty vec, if "inherit"
     /// - A vec of prefixes or ranges, else
     pub fn get_cert_ips_string_v4(&self) -> Option<Vec<String>> {
-        let n = self.content.get_node_by_label(&Label::new(CertExtIpAddressChoice, 1))?;
+        let n = self
+            .content
+            .get_node_by_label(&Label::new(LabelName::CertExtIpAddressChoice, 1))?;
         Some(self.get_cert_ips_string_from_token(n, 1))
     }
 
@@ -347,7 +365,9 @@ impl RpkiObject {
     /// - An empty vec, if "inherit"
     /// - A vec of prefixes or ranges, else
     pub fn get_cert_ips_string_v6(&self) -> Option<Vec<String>> {
-        let n = self.content.get_node_by_label(&Label::new(CertExtIpAddressChoice, 2))?;
+        let n = self
+            .content
+            .get_node_by_label(&Label::new(LabelName::CertExtIpAddressChoice, 2))?;
         Some(self.get_cert_ips_string_from_token(n, 2))
     }
 
@@ -379,7 +399,8 @@ impl RpkiObject {
                     let padding = ip_raw[0];
                     parse_ip(&ip_raw[1..].to_vec(), fam, padding as usize)
                 };
-                ips.push(format!("{}-{}",
+                ips.push(format!(
+                    "{}-{}",
                     ip_min.split("/").collect::<Vec<&str>>()[0],
                     ip_max.split("/").collect::<Vec<&str>>()[0],
                 ));
@@ -390,14 +411,18 @@ impl RpkiObject {
     }
 
     pub fn get_mft_number(&self) -> Option<u64> {
-        let data = self.content.get_raw_by_label(&MftNumber.into())?;
+        let data = self
+            .content
+            .get_raw_by_label(&LabelName::MftNumber.into())?;
 
         let number = byt_to_in(&data);
         return Some(number);
     }
 
     pub fn get_cert_ski(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label(&SignerInfoSignerIdentifier.into())?;
+        let data = self
+            .content
+            .get_raw_by_label(&LabelName::SignerInfoSignerIdentifier.into())?;
         // FIXME let data = self.content.get_raw_by_label("subjectKeyIdentifier")?;
         Some(hex::encode(data))
     }
@@ -405,24 +430,30 @@ impl RpkiObject {
     pub fn get_cert_is_root(&self) -> bool {
         return self
             .content
-            .get_node_by_label(&CertExtAia.into())
+            .get_node_by_label(&LabelName::CertExtAia.into())
             .is_none();
     }
 
     pub fn get_cert_issuer_uri(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label(&CertExtAiaCaIssuersUri.into())?;
+        let data = self
+            .content
+            .get_raw_by_label(&LabelName::CertExtAiaCaIssuersUri.into())?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
 
     pub fn get_cert_notification_uri(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label(&CertExtSiaNotificationUri.into())?;
+        let data = self
+            .content
+            .get_raw_by_label(&LabelName::CertExtSiaNotificationUri.into())?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
 
     pub fn get_cert_rsync_repo_uri(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label(&CertExtSiaCaRepositoryUri.into())?;
+        let data = self
+            .content
+            .get_raw_by_label(&LabelName::CertExtSiaCaRepositoryUri.into())?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
@@ -434,7 +465,9 @@ impl RpkiObject {
     }
 
     pub fn get_cert_signed_uri(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label(&CertExtSiaSignedObjectUri.into())?;
+        let data = self
+            .content
+            .get_raw_by_label(&LabelName::CertExtSiaSignedObjectUri.into())?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
@@ -472,24 +505,32 @@ impl RpkiObject {
 
 
     pub fn get_cert_aki(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label(&CertExtAkiKeyIdentifier.into())?;
+        let data = self
+            .content
+            .get_raw_by_label(&LabelName::CertExtAkiKeyIdentifier.into())?;
         Some(hex::encode(data))
     }
 
     pub fn get_cert_issuername(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label(&CertFldIssuerAttributeValue.into())?;
+        let data = self
+            .content
+            .get_raw_by_label(&LabelName::CertFldIssuerAttributeValue.into())?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
 
     pub fn get_cert_subjectname(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label(&CertFldSubjectAttributeValue.into())?;
+        let data = self
+            .content
+            .get_raw_by_label(&LabelName::CertFldSubjectAttributeValue.into())?;
 
         Some(from_utf8(&data).unwrap().to_string())
     }
 
     pub fn get_signature_oid(&self) -> String {
-        let data = self.content.get_raw_by_label(&SignatureAlgorithmId.into()); // TODO validate correctness
+        let data = self
+            .content
+            .get_raw_by_label(&LabelName::SignatureAlgorithmId.into()); // TODO validate correctness
         if data.is_none() {
             return "Unknown".to_string();
         }
@@ -552,8 +593,7 @@ impl RpkiObject {
 
 }
 
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, std::cmp::Eq, Hash, Copy)]
+#[derive(Copy, Clone, PartialEq, serde::Serialize, serde::Deserialize, Eq, Hash, Debug)]
 pub enum ObjectType {
     ROA,
     MFT,
@@ -606,14 +646,14 @@ impl ObjectType {
         }
     }
 
-    pub fn is_payload(&self) -> bool{
+    pub fn is_payload(&self) -> bool {
         match self {
             ObjectType::ROA | ObjectType:: IROA | ObjectType::ASA | ObjectType::GBR => true,
             _ => false,
         }
     }
 
-    pub fn get_extension(&self) -> String{
+    pub fn get_extension(&self) -> String {
         format!(".{}", self.to_string())
     }
 
@@ -641,12 +681,11 @@ impl ObjectType {
 
         *choices.choose(&mut rng).unwrap()
     }
-
 }
 
-impl ToString for ObjectType {
-    fn to_string(&self) -> String {
-        match self {
+impl Display for ObjectType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
             ObjectType::ROA => "roa".to_string(),
             ObjectType::MFT => "mft".to_string(),
             ObjectType::CERTCA => "cer".to_string(),
@@ -664,7 +703,8 @@ impl ToString for ObjectType {
             ObjectType::ICRL => "icrl".to_string(),
             ObjectType::IGBR => "igbr".to_string(),
             ObjectType::ICER => "icer".to_string(),
-        }
+        };
+        write!(f, "{}", str)
     }
 }
 
@@ -703,41 +743,6 @@ impl TAL {
             rsync_uri,
             certificate,
         })
-    }
-}
-
-pub fn ipstring_to_bytes(ip: &str, family: &IPType) -> Vec<u8> {
-    let mut parts = vec![];
-
-    let ip_no_pre = ip.split("/").collect::<Vec<&str>>()[0];
-    if family == &IPType::V4 {
-        for el in ip_no_pre.split(".") {
-            let ell = el.parse::<u8>();
-            if ell.is_err() {
-                println!("Couldnt parse {:?}", el);
-                return vec![];
-            }
-            let el = ell.unwrap();
-            parts.push(el);
-        }
-        return parts;
-    } else {
-        for el in ip_no_pre.split(":") {
-            if el.is_empty() {
-                parts.push(0);
-                parts.push(0);
-            } else {
-                let ell = u16::from_str_radix(el, 16);
-                if ell.is_err() {
-                    println!("Couldnt parse {:?}", el);
-                    return vec![];
-                }
-                let el = ell.unwrap();
-                parts.push((el >> 8) as u8);
-                parts.push((el & 0xFF) as u8);
-            }
-        }
-        return parts;
     }
 }
 
@@ -850,7 +855,7 @@ impl Entry {
 
         let vrps_ip = IPEntry {
             ip_s: ip.clone(),
-            ip: ipstring_to_bytes(&ip, &family),
+            ip: rpki_utils::ipstring_to_bytes(&ip, &family),
             prefix,
             max_len: ml,
             typ: family,
@@ -883,7 +888,7 @@ impl Entry {
 
         let vrps_ip = IPEntry {
             ip_s: ip.clone(),
-            ip: ipstring_to_bytes(&ip, &family),
+            ip: rpki_utils::ipstring_to_bytes(&ip, &family),
             prefix,
             max_len: ml,
             typ: family,
@@ -913,7 +918,7 @@ impl Entry {
 
         let vrps_ip = IPEntry {
             ip_s: ip.clone(),
-            ip: ipstring_to_bytes(&ip, &family),
+            ip: rpki_utils::ipstring_to_bytes(&ip, &family),
             prefix,
             max_len: roa.max_length,
             typ: family,
@@ -1046,7 +1051,7 @@ impl VRPS {
                     if optype != ObjectType::ROA {
                         return None;
                     }
-                    let tree = parse_rpki_object(&data, &optype);
+                    let tree = RpkiObject::parse_as(&data, optype);
                     if tree.is_none() {
                         println!("Failed to parse {:?}", uri);
                         return None;
@@ -1176,12 +1181,12 @@ impl VRPS {
     }
 
     pub fn contains_entry_asn(&self, asn: u32) -> bool {
-        for con in &self.content {
-            if con.asn == asn {
+        for entry in &self.content {
+            if entry.asn == asn {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     pub fn contains_entry_prefix(&self, prefix: &str) -> Vec<u32> {
