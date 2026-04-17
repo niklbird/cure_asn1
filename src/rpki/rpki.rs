@@ -625,7 +625,7 @@ struct Metadata {
     // counts: u32,
     generated: u64,
     // valid: u64,
-    generatedTime: String,
+    generated_time: String,
 }
 
 // #[derive(Serialize, Deserialize, Debug)]
@@ -639,7 +639,7 @@ struct Metadata {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct JsonRoa {
     pub prefix: String,
-    pub maxLength: u8,
+    pub max_length: u8,
     pub asn: String,
     pub ta: String,
 }
@@ -794,7 +794,7 @@ impl Entry {
             ip_s: ip.clone(),
             ip: ipstring_to_bytes(&ip, &family),
             prefix,
-            max_len: roa.maxLength,
+            max_len: roa.max_length,
             typ: family,
         };
 

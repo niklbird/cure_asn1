@@ -67,6 +67,7 @@ impl Types {
         }
     }
 
+
     pub fn from_type_id(id: u8) -> Types {
         match id {
             0x30 | 0x50 => Types::Sequence,
@@ -91,7 +92,7 @@ impl Types {
             Types::Cont0 => true,
             Types::Integer => true,
             Types::IA5String => true,
-            _ => false,
+            // _ => false,
         }
     }
 }
@@ -168,7 +169,7 @@ impl Token {
             info: String::new(),
             manipulated: false,
             manipulated_length: false,
-            visual_tag: vec![get_type_id(tag)],
+            visual_tag: vec![tag_u],
         }
     }
 
@@ -654,6 +655,27 @@ impl Tree {
         return t.unwrap();
     }
 
+    pub fn add_token_from_data(&mut self, data: Vec<u8>, tag: u8, parent: usize, label: Option<String>) -> usize {
+        let len = data.len();
+        // let len_bytes = encode_asn1_length(len).len();
+        // let total_len = 1 + len_bytes + len;
+
+        let new_id = self.tokens.keys().max().unwrap_or(&0) + 1;
+        let typ = match tag{
+            48 => Types::Sequence,
+            49 => Types::Set,
+            4 => Types::OctetString,
+            _ => Types::TLV,
+
+        };
+        let new_token = Token::new(typ, len, data.clone(), parent, new_id, tag);
+        self.tokens.insert(new_id, new_token);
+        self.tokens.get_mut(&parent).unwrap().children.push(new_id);
+        if label.is_some(){
+            self.labels.insert(label.clone().unwrap(), new_id);
+        }
+        return new_id;
+    }
 
 
     pub fn get_node(&self, id: usize) -> Option<&Token> {

@@ -20,12 +20,23 @@ regex = "1"
 quick-xml = "0.37.2"
 rayon = "1.7"
 chrono = "0.4.23"
-prost = "0.13.5"
-prost-derive = "0.13.5"
-prost-types = "0.13.5"
+prost = {version="0.13.5", optional=true}
+prost-derive = {version="0.13.5", optional=true}
+prost-types = {version="0.13.5", optional=true}
 memchr = "2.7.4"
 twoway = "0.2.2"
 
 
+
 [features]
 cached_keys = []
+
+default = [] 
+
+# Enable protobuf-based model generation
+proto = ["prost", "prost-build", "prost-derive", "prost-types"]
+research = []
+
+[build-dependencies]
+# codegen only needed at build time if the feature is active
+prost-build = { version = "0.13", optional = true }
