@@ -50,7 +50,8 @@ pub enum LabelName {
     AspaProviderAsSeq,
 
     /// Ghostbuster Record
-    GbrContent,
+    // GbrContent,
+    GbrVcard,
 
     /// Manifest
     // MftContent, -> EContentProfiled
@@ -65,7 +66,7 @@ pub enum LabelName {
     MftHash,
     /// iManifest
     IMftCrlEntries,
-    IMftCrlEntriesSeq, // TODO @Niklas naming
+    IMftCrlEntriesSeq,
 
     SignedObjectCertificateSet,
 
@@ -325,7 +326,8 @@ impl LabelName {
             AspaProviderAsSeq => "aspaProviderAsSeq",
 
             // Ghostbuster Record
-            GbrContent => "gbrContent",
+            // GbrContent => "gbrContent",
+            GbrVcard => "gbrVcard",
 
             // Manifest
             // MftContent => "mftContent",

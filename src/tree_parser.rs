@@ -171,11 +171,11 @@ impl Token {
     pub fn new(tag: TypeTag, length: usize, data: Vec<u8>, parent: usize, id: usize, tag_u: u8) -> Token {
         Token {
             tag: tag.clone(),
-            length: length,
-            data: data,
-            parent: parent,
+            length,
+            data,
+            parent,
             children: Vec::new(),
-            id: id,
+            id,
             tainted: false,
             tag_u,
             visual_length: length,
@@ -214,7 +214,7 @@ impl Token {
             Ok(val) => (val.to_string(), val.to_string(), val.to_string(), self.data.clone()),
             Err(_) => (con_display.clone(), con_display.clone(), con_display, self.data.clone())
         };
-        return (info_str, tag_val, len_val, con_val);
+        (info_str, tag_val, len_val, con_val)
     }
 
     pub fn pretty_bitstring(&self, just_info: bool) -> String {
@@ -322,7 +322,7 @@ impl Token {
                 };
 
                 let con_val = (hex::encode(&self.data), display, human_readble, self.data.clone());
-                return (info_str, tag_val, len_val, con_val);
+                (info_str, tag_val, len_val, con_val)
             }
             0x30 | 0x50 => { // Sequence
                 let dv = if self.tag_u == self.visual_tag[0] {
@@ -339,7 +339,7 @@ impl Token {
 
                 let con_display = format!("");
                 let con_val = ("".to_string(), con_display.clone(), con_display, vec![]);
-                return (info_str, tag_val, len_val, con_val);
+                (info_str, tag_val, len_val, con_val)
             }
             0x31 | 0x51 => {
                 // Set
@@ -357,7 +357,7 @@ impl Token {
 
                 let con_display = format!("");
                 let con_val = ("".to_string(), con_display.clone(), con_display, vec![]);
-                return (info_str, tag_val, len_val, con_val);
+                (info_str, tag_val, len_val, con_val)
             }
             0x04 | 0x24 => {
                 // Octetstring
@@ -382,7 +382,7 @@ impl Token {
                 };
 
                 let con_val = (hex::encode(&val), con_display, human_readable, val);
-                return (info_str, tag_val, len_val, con_val);
+                (info_str, tag_val, len_val, con_val)
             }
             0x05 => { // Null
                 let tag_display = if self.tag_u == self.visual_tag[0] {
@@ -398,8 +398,7 @@ impl Token {
 
                 let con_display = hex::encode(&self.data);
                 let con_val = (con_display.clone(), con_display.clone(), con_display, self.data.clone());
-                return (info_str, tag_val, len_val, con_val);
-
+                (info_str, tag_val, len_val, con_val)
             }
             0x06 | 0x26 => {
                 // Oid
@@ -424,7 +423,7 @@ impl Token {
                     oid.to_string()
                 };
                 let con_val = (con_display.clone(), con_display, oid.to_string(), self.data.clone());
-                return (info_str, tag_val, len_val, con_val);
+                (info_str, tag_val, len_val, con_val)
             }
             0x02 => {
                 // Integer
@@ -442,7 +441,7 @@ impl Token {
 
                 let con_display = format!("{}", byt_to_in(&self.data));
                 let con_val = (con_display.clone(), con_display.clone(), con_display.clone(), self.data.clone());
-                return (info_str, tag_val, len_val, con_val);
+                (info_str, tag_val, len_val, con_val)
             }
             0xA0..=0xA6 => {
                 // Implicit
@@ -461,7 +460,7 @@ impl Token {
 
                 let con_display = format!("");
                 let con_val = ("".to_string(), con_display.clone(), con_display, vec![]);
-                return (info_str, tag_val, len_val, con_val);
+                (info_str, tag_val, len_val, con_val)
             }
             0x0E | 0x2E => {
                 // TIME
@@ -487,7 +486,7 @@ impl Token {
 
                 let con_val = (con_display.clone(), con_display.clone(), con_display, self.data.clone());
 
-                return (info_str, tag_val, len_val, con_val);
+                (info_str, tag_val, len_val, con_val)
             }
             0x17 | 0x37 => {
                 // UTC Time
@@ -507,7 +506,7 @@ impl Token {
 
                 let con_val = (con_display.clone(), con_display.clone(), con_display, self.data.clone());
 
-                return (info_str, tag_val, len_val, con_val);
+                (info_str, tag_val, len_val, con_val)
             }
             0x18 | 0x38 => {
                 // GeneralizedTime
@@ -527,7 +526,7 @@ impl Token {
 
                 let con_val = (con_display.clone(), con_display.clone(), con_display, self.data.clone());
 
-                return (info_str, tag_val, len_val, con_val);
+                (info_str, tag_val, len_val, con_val)
             }
             0x07 | 0x27 | 0x0C | 0x2C | 0x12..=0x16 | 0x32..=0x36 | 0x19..=0x1E | 0x39..=0x3E => {
                 // String
@@ -550,7 +549,7 @@ impl Token {
                     data_dec.to_string(),
                    data_dec.to_string(), self.data.clone(),
                 );
-                return (info_str,tag_val, len_val, con_val);
+                (info_str,tag_val, len_val, con_val)
             }
             0x03 | 0x23 => {
                 // BIT STRING
@@ -571,7 +570,7 @@ impl Token {
                 let encoded = self.pretty_bitstring(false);
                 let human_readable = self.pretty_bitstring(true);
                 let con_val = (human_readable.clone(), encoded.to_string(), human_readable, self.data.clone());
-                return (info_str, tag_val, len_val, con_val);
+                (info_str, tag_val, len_val, con_val)
             }
             0xD => { // Relative OID
                 // TODO Proper handling of relative OID
@@ -607,6 +606,9 @@ pub enum Asn1ObjType {
     Tls,
     /// Certificate Revocation List [RFC6487](https://datatracker.ietf.org/doc/rfc6487)
     Crl,
+
+    IRoa,
+    IMft,
 }
 
 impl Asn1ObjType {
@@ -623,6 +625,8 @@ impl Asn1ObjType {
             Self::Cert => "cer",
             Self::Tls => "tls",
             Self::Crl => "crl",
+            Self::IRoa => "iroa",
+            Self::IMft => "imft",
         }
     }
 }
@@ -643,8 +647,8 @@ impl From<ObjectType> for Option<Asn1ObjType> {
             ObjectType::NOTIFICATION => None,
             ObjectType::SNAPSHOT => None,
             ObjectType::DELTA => None,
-            ObjectType::IROA => Some(SignedObj(IRoa)),
-            ObjectType::IMFT => None,
+            ObjectType::IROA => Some(IRoa),
+            ObjectType::IMFT => Some(IMft),
             ObjectType::ICRL => None,
             ObjectType::IGBR => None,
             ObjectType::ICER => None,
@@ -656,12 +660,12 @@ impl From<ObjectType> for Option<Asn1ObjType> {
 pub enum SObjType {
     /// Route Origin Authorization [RFC9582](https://datatracker.ietf.org/doc/rfc9582/)
     Roa,
-    IRoa,
-    SRoa,
-    RRoa,
+    // IRoa,
+    // SRoa,
+    // RRoa,
     /// Manifest [RFC9286](https://datatracker.ietf.org/doc/rfc9286/)
     Mft,
-    IMft,
+    // IMft,
     /// Ghostbuster Record [RFC6493](https://datatracker.ietf.org/doc/rfc6493/)
     Gbr,
     /// Autonomous System Authorization [RFC Draft](https://datatracker.ietf.org/doc/draft-ietf-sidrops-aspa-profile/)
@@ -672,11 +676,11 @@ impl SObjType {
     pub fn filename_extension(&self) -> &str {
         match self {
             Self::Roa => "roa",
-            Self::IRoa => "iroa",
-            Self::SRoa => "sroa",
-            Self::RRoa => "rroa",
+            // Self::IRoa => "iroa",
+            // Self::SRoa => "sroa",
+            // Self::RRoa => "rroa",
             Self::Mft => "mft",
-            Self::IMft => "imft",
+            // Self::IMft => "imft",
             Self::Gbr => "gbr",
             Self::Aspa => "asa",
         }
@@ -1192,9 +1196,9 @@ impl Tree {
         known_oids.insert("1.2.840.113549.1.9.16.1.26", SObjType::Mft);
         known_oids.insert("1.2.840.113549.1.9.16.1.35", SObjType::Gbr);
         known_oids.insert("1.2.840.113549.1.9.16.1.49", SObjType::Aspa);
-
-        known_oids.insert("1.2.840.113549.1.9.16.1.44", SObjType::IRoa);
-        known_oids.insert("1.2.840.113549.1.9.16.1.46", SObjType::IMft);
+        //
+        // known_oids.insert("1.2.840.113549.1.9.16.1.44", SObjType::IRoa);
+        // known_oids.insert("1.2.840.113549.1.9.16.1.46", SObjType::IMft);
 
         if all_oids.contains("1.2.840.113549.1.7.2") {
             // SignedData
@@ -1384,7 +1388,7 @@ impl Tree {
     }
 
     pub fn label_tree(&mut self, obj_type: Asn1ObjType) {
-        if let Some(label_obj) = label_tree(obj_type, &self) {
+        if let Some(label_obj) = label_tree(obj_type) {
             self.label_tree_rec(self.root_id, &label_obj);
         }
     }
@@ -2209,8 +2213,24 @@ mod test {
     //     }
     // }
 
+    fn decode_and_print(encoded: &str, object_type: ObjectType) {
+        let content = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .unwrap();
+        let parsed = crate::rpki::rpki::RpkiObject::parse_as(&content, object_type).unwrap();
+
+        let mut ids: Vec<_> = parsed.content.tokens.keys().collect();
+        ids.sort();
+        for i in ids {
+            let node = &parsed.content.tokens[i];
+            println!("{i} {:?} {}", &node, from_utf8_lossy(node.data.as_slice()));
+        }
+
+        println!("{:?}", &parsed.content.labels);
+    }
+
     #[test]
-    fn test_tree() {
+    fn test_tree_cert() {
         let encoded = "MIIGajCCBVKgAwIBAgIUAQ0Mn0MoWEm/N8RwcTfl5ngiCgAwDQYJKoZIhvcNAQELBQAwLzE\
         tMCsGA1UEAxMkNWU0YTIzZWEtZTgwYS00MDNlLWIwOGMtMjE3MWRhMjE1N2QzMB4XDTI1MDUwNTAwNDUzNVoXDTI3MD\
         gwODAwNDUzNVowLzEtMCsGA1UEAxMkMDM1NzI3MmMtYTc5YS00NWJmLTk1ODYtOTJkZDQ5ZWYzMjIzMIIBIjANBgkqh\
@@ -2237,15 +2257,37 @@ mod test {
         IK2GPZotfxp7WpIst6toC+2pWaGLZWM0hTCSf/FZ2Uthc883xIqqyMb0ttxXaXqFRVdpKV9mJSGWWmgPAsK2tRCXz6e\
         QjpYtwrJ4ql4WlT46LjCPq3drhPJDr4=";
 
-        let content = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .unwrap();
-        let parsed = crate::rpki::rpki::RpkiObject::parse_as(&content, ObjectType::CERTCA).unwrap();
+        decode_and_print(encoded, ObjectType::CERTCA);
+    }
 
-        for (i, node) in parsed.content.tokens {
-            println!("{i} {:?} {}", &node, from_utf8_lossy(node.data.as_slice()));
-        }
+    #[test]
+    fn test_tree_roa() {
+        let encoded = "MIIGdQYJKoZIhvcNAQcCoIIGZjCCBmICAQMxDTALBglghkgBZQMEAgEwKAYLKoZIhvcNAQk\
+        QARigGQQXMBUCASIwEDAOBAIAATAIMAYDBAAKAAGgggR0MIIEcDCCA1igAwIBAgIBATANBgkqhkiG9w0BAQsFADAzMT\
+        EwLwYDVQQDEyhiNzY3NDJlMDlkY2NmMGRkNjBmYTczZTc1NmM5ZmY1MjQ2ZDUzNTA0MB4XDTI2MDQxODIwMTY0MVoXD\
+        TI2MDcxODIwMTY0MVowMzExMC8GA1UEAxMoMWFkNDAyYTlkZTAwZDJlNTQyMDczYjhkMzRkNzVjN2IzYWIwOWI5MzCC\
+        ASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAMzLXCc9XjL70arBBZUwaRKxhEgK31zDuCk+esPOkrFGFgos4Lh\
+        wWMoar80JXZi6GInjiNICrOwMPbh9RIry/h4rm7g/M5Xm4/93GxNsQwVI5YNoUKkGZGKo5YLTb8ocv5TF66SQQtN60P\
+        HCZh+MrOoqgepm7uiEMu7ohcW/F1wCqY/x0/lkY5PC9fRcmeqNIZcqnGTiBAvGrrCAKn5AtuOKMH/Fs3L8nHVDfhZ1u\
+        7Ta63qV+TEsaDp9VG3gZE7+ItfVgiAy8d0FH42JwzWFI1m/ut8G8bLZCbhNkWHbU4D2paroHQzxtRi21/n3m2cj2pjt\
+        77yi3fb+y0FlxLle/6cCAwEAAaOCAY0wggGJMB0GA1UdDgQWBBQa1AKp3gDS5UIHO40011x7OrCbkzAfBgNVHSMEGDA\
+        WgBS3Z0Lgnczw3WD6c+dWyf9SRtU1BDAOBgNVHQ8BAf8EBAMCB4AwYAYDVR0fBFkwVzBVoFOgUYZPcnN5bmM6Ly9teS\
+        5zZXJ2ZXIuY29tL2RhdGEvcmVwby90YS9iNzY3NDJlMDlkY2NmMGRkNjBmYTczZTc1NmM5ZmY1MjQ2ZDUzNTA0LmNyb\
+        DBFBggrBgEFBQcBAQQ5MDcwNQYIKwYBBQUHMAKGKXJzeW5jOi8vbXkuc2VydmVyLmNvbS9kYXRhL3JlcG8vdGEvdGEu\
+        Y2VyMEsGCCsGAQUFBwELBD8wPTA7BggrBgEFBQcwC4YvcnN5bmM6Ly9teS5zZXJ2ZXIuY29tL2RhdGEvcmVwby90YS9\
+        qNWRGY1VPRy5yb2EwGAYDVR0gAQH/BA4wDDAKBggrBgEFBQcOAjAnBggrBgEFBQcBBwEB/wQYMBYwCQQCAAEwAwMBAD\
+        AJBAIAAjADAwEAMA0GCSqGSIb3DQEBCwUAA4IBAQCZKSh2LBC3dWy6LYokRIoe5a2ztWpUTc63hglGI+LcWY+w8GLKU\
+        BPBd62ctytsaJkk38a3ZbTJgaosCeKr6vT8C5QBS3UhZlrE8EK7e/ycciIP+fTMhvUrpRbW1gowNfCNGZkSrGGiVuGe\
+        s2tLmrgRrhV4WmAE5ZGAJAGh8UDO+gh7KC3bWsF3rHC/Npmfim6ttVuYJuVDagFmm5NG+oxGvFHJWBynWKlfKr5zRV5\
+        /SWF9p4zSUTGbTf0ewz1oEruQJCjeqnDHYOalfZRKYt/aQRcrHG+oUqKlA0/Ylu/mZdBv9c6XnJ3Wh96XAvrE63a5/N\
+        l8gr8cI9vNRfoA8gXuMYIBqjCCAaYCAQOAFBrUAqneANLlQgc7jTTXXHs6sJuTMAsGCWCGSAFlAwQCAaBrMBoGCSqGS\
+        Ib3DQEJAzENBgsqhkiG9w0BCRABGDAcBgkqhkiG9w0BCQUxDxcNMjYwNDE5MjAxNjQxWjAvBgkqhkiG9w0BCQQxIgQg\
+        N21g1gToI90ZSLxBjbP6I89mbT8weANnOYaWkzFs1ygwDQYJKoZIhvcNAQELBQAEggEAjT/75EaTFqc1zMJMZn4860H\
+        99vQt/u2qmhQGlaXe2WdngNlUe7BWTzhvj0XHMExMW0ZD81duIZhuiB5vDIeGmP4XLE4vPA+Rf/i5z7Y03sn4yhlGiw\
+        hvBENxKCFgQMCzAWvvjvFjRObFBA5ZFpRw1v/73CkVNiCZSYobNcogmB2JRm6sJWsw77ks/HMZYyvWnCT+uEhq3RyMi\
+        vQaw3sgGm12KLkKxQJmivDHH1pzBVGaU77zwGUNb8ziiYb3XDvzURVlv5r+8GIWv+kADzG80JEjidwJoKPYkcLnRUci\
+        AxildEsIELxwnjDClEdkjn2tPdzQSC0Y9MO1MtoM1AP3nA==";
 
-        println!("{:?}", &parsed.content.labels);
+        decode_and_print(encoded, ObjectType::ROA);
     }
 }

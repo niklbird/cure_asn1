@@ -22,7 +22,6 @@ use crate::tree_parser::Token;
 use std::error::Error;
 use std::fmt::Display;
 use crate::labels::LabelName;
-use crate::labels::LabelName::{EContentProfiled, MftFileList};
 use crate::rpki::rpki_utils;
 
 #[deprecated]
@@ -277,7 +276,6 @@ impl RpkiObject {
         //     }
         // }
         // ips
-        // FIXME check if works
         let mut vec = self.get_roa_ips_string_v4();
         vec.extend(self.get_roa_ips_string_v6());
         vec
@@ -423,10 +421,7 @@ impl RpkiObject {
     }
 
     pub fn get_cert_ski(&self) -> Option<String> {
-        let data = self
-            .content
-            .get_raw_by_label(&LabelName::SignerInfoSignerIdentifier.into())?;
-        // FIXME let data = self.content.get_raw_by_label("subjectKeyIdentifier")?;
+        let data = self.content.get_raw_by_label(&LabelName::CertExtSkiValue.into())?;
         Some(hex::encode(data))
     }
 

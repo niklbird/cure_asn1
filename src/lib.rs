@@ -7,7 +7,6 @@
 //!
 //! [RRDP (RPKI Repository Delta Protocol)]: https://www.rfc-editor.org/rfc/rfc8182
 
-#![allow(non_upper_case_globals)] // FIXME Remove this once refactoring is done
 #![allow(dead_code)]
 
 use crate::rpki::rpki::ObjectType;
