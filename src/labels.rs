@@ -243,7 +243,7 @@ pub enum LabelName {
     CrlExtCrlnOid,
     CrlExtCrlnValue,
     /// CRLNumber ::= INTEGER (0..MAX)
-    CertExtCrlnCrlNumber,
+    CrlExtCrlnCrlNumber,
 
     /// signerInfos
     SignedObjectSignerInfos,
@@ -501,7 +501,7 @@ impl LabelName {
             CrlExtCrln => "crlNumberExt",
             CrlExtCrlnOid => "crlNumberOid",
             CrlExtCrlnValue => "crlNumberValue",
-            CertExtCrlnCrlNumber => "crlNumberCrlNumber",
+            CrlExtCrlnCrlNumber => "crlNumberCrlNumber",
 
             // signerInfos
             SignedObjectSignerInfos => "signerInfos",
