@@ -59,7 +59,7 @@ impl SignerInfoPaths {
                 SignedObjectSignedData.into(),
                 SignedObjectSignerInfos.into(),
                 SignerInfo.into(),
-                Signature.into(),
+                SignerInfoSignature.into(),
             ],
         }
     }

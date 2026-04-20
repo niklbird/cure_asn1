@@ -398,7 +398,7 @@ impl Label {
 
     pub(crate) fn is_signature(&self) -> bool {
         match self.name {
-            Signature => true,
+            CertificateSignature | SignerInfoSignature => true,
             _ => false,
         }
     }
@@ -717,13 +717,13 @@ pub fn label_cert_choices(certificate: LabelObject) -> LabelObject {
         vec![
             certificate,
             LabelObject::label(
-                SignatureAlgorithm.into(),
+                CertificateSignatureAlgorithm.into(),
                 vec![
-                    SignatureAlgorithmId.into(),
-                    SignatureAlgorithmParameters.into(),
+                    CertificateSignatureAlgorithmId.into(),
+                    CertificateSignatureAlgorithmParameters.into(),
                 ],
             ),
-            Signature.into(),
+            CertificateSignature.into(),
         ],
     )
 }
@@ -1153,14 +1153,14 @@ pub fn label_signer_infos() -> LabelObject {
     let signed_attributes = LabelObject::function(label_fn_signed_attrs);
 
     let signed_signature_algorithm = LabelObject::label(
-        SignatureAlgorithm.into(),
+        SignerInfoSignatureAlgorithm.into(),
         vec![
-            SignatureAlgorithmId.into(),
-            SignatureAlgorithmParameters.into(),
+            SignerInfoSignatureAlgorithmId.into(),
+            SignerInfoSignatureAlgorithmParameters.into(),
         ],
     );
 
-    let signed_signature = Signature.into();
+    let signed_signature = SignerInfoSignature.into();
 
     let signer_info = LabelObject::label(
         SignerInfo.into(),

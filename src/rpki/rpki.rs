@@ -528,7 +528,7 @@ impl RpkiObject {
     pub fn get_signature_oid(&self) -> String {
         let data = self
             .content
-            .get_raw_by_label(&LabelName::SignatureAlgorithmId.into()); // TODO validate correctness
+            .get_raw_by_label(&LabelName::SignerInfoSignatureAlgorithmId.into());
         if data.is_none() {
             return "Unknown".to_string();
         }

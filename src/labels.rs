@@ -70,10 +70,14 @@ pub enum LabelName {
 
     SignedObjectCertificateSet,
 
-    // Certificate for Certs / CertificateList for CRLs / CertificateChoices for SOs
+    // Certificate for Certs / CertificateList for CRLs / CertificateChoices Certificate for SOs
     CertificateSeq,
     /// TBSCertificate for Certs / TBSCertList for CRLs
     Certificate,
+    CertificateSignatureAlgorithm,
+    CertificateSignatureAlgorithmId,
+    CertificateSignatureAlgorithmParameters,
+    CertificateSignature,
 
     /// Certificate Fields
     CertFldVersionSeq,
@@ -268,12 +272,10 @@ pub enum LabelName {
     SignerInfoSignedAttributeSignatureOid,
     SignerInfoSignedAttributeSignatureValues,
     SignerInfoSignedAttributeSignatureAttributeValue,
-
-    // part of the SignerInfos or Crl structure
-    SignatureAlgorithm,
-    SignatureAlgorithmId,
-    SignatureAlgorithmParameters,
-    Signature,
+    SignerInfoSignatureAlgorithm,
+    SignerInfoSignatureAlgorithmId,
+    SignerInfoSignatureAlgorithmParameters,
+    SignerInfoSignature,
 }
 
 impl LabelName {
@@ -348,6 +350,10 @@ impl LabelName {
 
             CertificateSeq => "certificateSeq",
             Certificate => "certificate",
+            CertificateSignatureAlgorithm => "certificateSignatureAlgorithm",
+            CertificateSignatureAlgorithmId => "certificateSignatureAlgorithmId",
+            CertificateSignatureAlgorithmParameters => "certificateSignatureAlgorithmParameters",
+            CertificateSignature => "certificateSignature",
 
             CertFldVersionSeq => "certVersionSeq",
             CertFldVersion => "certVersion",
@@ -523,12 +529,10 @@ impl LabelName {
             SignerInfoSignedAttributeSignatureOid => "signedAttrSignatureOid",
             SignerInfoSignedAttributeSignatureValues => "signedAttrSignatureValues",
             SignerInfoSignedAttributeSignatureAttributeValue => "signedAttrSignatureAttributeValue",
-
-            //
-            SignatureAlgorithm => "signatureAlgorithm",
-            SignatureAlgorithmId => "signatureAlgorithmId",
-            SignatureAlgorithmParameters => "signatureAlgorithmParameters",
-            Signature => "signature",
+            SignerInfoSignatureAlgorithm => "signerInfoSignatureAlgorithm",
+            SignerInfoSignatureAlgorithmId => "signerInfoSignatureAlgorithmId",
+            SignerInfoSignatureAlgorithmParameters => "signerInfoSignatureAlgorithmParameters",
+            SignerInfoSignature => "signerInfoSignature",
         }
     }
 
