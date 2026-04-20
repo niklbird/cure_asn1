@@ -4,7 +4,7 @@ Mutate an ASN.1 syntax tree for fuzzing.
 
 use std::collections::HashSet;
 
-use crate::tree_parser::{self, Token, Tree, Types};
+use crate::tree_parser::{self, Token, Tree, TypeTag};
 use rand::distributions::WeightedIndex;
 use rand::prelude::Distribution;
 use rand::seq::SliceRandom;
@@ -104,7 +104,12 @@ pub fn mutate_tree(tree: &mut Tree, number_mutations: usize) {
 
             if random_res < likelihood_random
                 || !tree.tokens.contains_key(&last_id)
-                || tree.mutations.last().unwrap().get_mutation_string().contains("NoMutation")
+                || tree
+                    .mutations
+                    .last()
+                    .unwrap()
+                    .get_mutation_string()
+                    .contains("NoMutation")
             {
                 node_id = tree.guided_token_id();
             } else {
@@ -121,7 +126,7 @@ pub fn mutate_tree(tree: &mut Tree, number_mutations: usize) {
             let attempt = 3;
             for _ in 0..attempt {
                 node_id = tree.guided_token_id();
-            
+
             m = mutate_token(tree, node_id);
             if !m.is_no_mutation() {
                 break;
@@ -130,7 +135,10 @@ pub fn mutate_tree(tree: &mut Tree, number_mutations: usize) {
         else{
             // println!("{:?} on {}", m, tree.tokens.get(&node_id).unwrap().info);
         }
-        tree.mutations.push(Mutation { mutation: m, node_id });
+        tree.mutations.push(Mutation {
+            mutation: m,
+            node_id,
+        });
     }
     tree.fix_sizes(true);
 }
@@ -174,17 +182,17 @@ pub fn mutate_token(tree: &mut Tree, id: usize) -> TokenMutation {
     let tag = &tree.tokens.get(&id).unwrap().tag;
 
     let m = match tag {
-        &Types::Sequence => TokenMutation::Sequence(mutate_sequence(tree, id)),
-        &Types::TLV => mutate_tlv(tree, id),
-        &Types::Set => TokenMutation::Set(mutate_sequence(tree, id)),
-        &Types::OctetString => mutate_octetstring(tree, id),
-        &Types::Implicit => mutate_implicit(tree, id),
-        &Types::BitString => mutate_tlv(tree, id),
-        &Types::NULL => mutate_tlv(tree, id),
-        &Types::ObjectIdentifier => mutate_tlv(tree, id),
-        &Types::Cont0 => mutate_tlv(tree, id),
-        &Types::Integer => mutate_tlv(tree, id),
-        &Types::IA5String => mutate_tlv(tree, id),
+        &TypeTag::Sequence => TokenMutation::Sequence(mutate_sequence(tree, id)),
+        &TypeTag::TLV => mutate_tlv(tree, id),
+        &TypeTag::Set => TokenMutation::Set(mutate_sequence(tree, id)),
+        &TypeTag::OctetString => mutate_octetstring(tree, id),
+        &TypeTag::Implicit => mutate_implicit(tree, id),
+        &TypeTag::BitString => mutate_tlv(tree, id),
+        &TypeTag::Null => mutate_tlv(tree, id),
+        &TypeTag::ObjectIdentifier => mutate_tlv(tree, id),
+        &TypeTag::Cont0 => mutate_tlv(tree, id),
+        &TypeTag::Integer => mutate_tlv(tree, id),
+        &TypeTag::IA5String => mutate_tlv(tree, id),
     };
 
     // Token can not be contained anymore if it was deleted from a sequence e.g.
@@ -236,8 +244,21 @@ fn prev_power_of_two(n: u32) -> u32 {
 
 pub fn manipulate_value(value: u32, max: u32) -> (u32, ValueMutation) {
     let mut rng = rand::thread_rng();
-    let mutation_types = [(0, 5), (1, 5), (2, 5), (3, 5), (4, 2), (5, 2), (6, 15), (7, 7), (8, 7)];
-    let chosen_type = mutation_types.choose_weighted(&mut rng, |&(_, weight)| weight).unwrap().0;
+    let mutation_types = [
+        (0, 5),
+        (1, 5),
+        (2, 5),
+        (3, 5),
+        (4, 2),
+        (5, 2),
+        (6, 15),
+        (7, 7),
+        (8, 7),
+    ];
+    let chosen_type = mutation_types
+        .choose_weighted(&mut rng, |&(_, weight)| weight)
+        .unwrap()
+        .0;
 
     match chosen_type {
         0 => return (0, ValueMutation::Zero),
@@ -248,7 +269,10 @@ pub fn manipulate_value(value: u32, max: u32) -> (u32, ValueMutation) {
         5 => return (prev_power_of_two(value), ValueMutation::PreviousPowerOfTwo),
         6 => return (rng.gen_range(0..max), ValueMutation::Random),
         7 => (value.wrapping_add(rng.gen_range(0..10)), ValueMutation::Add),
-        8 => (value.wrapping_sub(rng.gen_range(0..10)), ValueMutation::Substract),
+        8 => (
+            value.wrapping_sub(rng.gen_range(0..10)),
+            ValueMutation::Substract,
+        ),
 
         _ => unreachable!(),
     }
@@ -260,7 +284,8 @@ pub fn mutate_tag(token: &mut Token) -> ValueMutation {
     let val = rng.gen_range(0..3);
 
     let interesting_tags = vec![
-        1, 2, 3, 4, 5, 5, 6, 10, 12, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 31, 31, 31, 48, 48, 49, 49,
+        1, 2, 3, 4, 5, 5, 6, 10, 12, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 31, 31, 31, 48, 48,
+        49, 49,
     ];
 
     if token.visual_tag.len() == 0 {
@@ -498,7 +523,7 @@ pub fn mutate_string(data: Vec<u8>) -> Vec<u8> {
             let mut new_data = data.clone();
             let byte = rng.gen_range(0..data.len());
             new_data[byte] = new_data[byte].wrapping_add(1);
-            return new_data; 
+            return new_data;
         }
         4 => {
             // Insert random char
@@ -512,8 +537,13 @@ pub fn mutate_string(data: Vec<u8>) -> Vec<u8> {
             // Insert interesting char
             let mut new_data = data.clone();
             let byte = rng.gen_range(0..data.len());
-            let interesting_chars = vec![0, 7, 8, 9, 10, 11, 12, 27, 32, 127, 128, 139, 158, 169, 254, 255];
-            let random_value: usize = rng.gen_range(0..interesting_chars.len()).try_into().unwrap();
+            let interesting_chars = vec![
+                0, 7, 8, 9, 10, 11, 12, 27, 32, 127, 128, 139, 158, 169, 254, 255,
+            ];
+            let random_value: usize = rng
+                .gen_range(0..interesting_chars.len())
+                .try_into()
+                .unwrap();
 
             new_data.insert(byte, interesting_chars[random_value]);
             return new_data;
@@ -629,6 +659,7 @@ pub fn mutate_date(data: Vec<u8>) -> Vec<u8> {
 
 pub fn mutate_content_specific(token: &mut Token) -> ContentMutation {
     let data = token.data.clone();
+    // TODO clean this into match on enum
     let tag = token.tag.to_type_id();
     if tag == 1 {
         token.data = mutate_bool(data);
@@ -644,7 +675,15 @@ pub fn mutate_content_specific(token: &mut Token) -> ContentMutation {
     } else if tag == 6 {
         token.data = mutate_oid(data);
         return ContentMutation::DataSpecific;
-    } else if tag == 12 || tag == 19 || tag == 25 || tag == 22 || tag == 30 || tag == 27 || tag == 29 || tag == 18 {
+    } else if tag == 12
+        || tag == 19
+        || tag == 25
+        || tag == 22
+        || tag == 30
+        || tag == 27
+        || tag == 29
+        || tag == 18
+    {
         token.data = mutate_string(data);
         return ContentMutation::DataSpecific;
     } else if tag == 23 || tag == 24 || tag == 31 || tag == 33 {
@@ -674,7 +713,10 @@ pub fn mutate_binary_data(data: &mut Vec<u8>) -> ContentMutation {
         (8, 20),
         (9, 20),
     ];
-    let chosen_type = mutation_types.choose_weighted(&mut rng, |&(_, weight)| weight).unwrap().0;
+    let chosen_type = mutation_types
+        .choose_weighted(&mut rng, |&(_, weight)| weight)
+        .unwrap()
+        .0;
 
     match chosen_type {
         0 => {
@@ -725,7 +767,8 @@ pub fn mutate_binary_data(data: &mut Vec<u8>) -> ContentMutation {
                 let first_start = rng.gen_range(0..(data.len() - 2 * size));
                 let second_start = rng.gen_range((first_start + size)..(data.len() - size));
                 let mut cloned = data.clone();
-                data[first_start..(first_start + size)].swap_with_slice(&mut cloned[second_start..(second_start + size)]);
+                data[first_start..(first_start + size)]
+                    .swap_with_slice(&mut cloned[second_start..(second_start + size)]);
                 return ContentMutation::ChunkSwapping;
             } else {
                 return ContentMutation::NoMutation;
@@ -845,9 +888,12 @@ pub fn mutate_content_random(token: &mut Token) -> ContentMutation {
 // Generic manipulation of a field
 pub fn mutate_field(tree: &mut Tree, node_id: usize) -> FieldMutation {
     let mut rng = rand::thread_rng();
-    // TODO reenable 
+    // TODO reenable
     let mutation_types = [(0, 0), (1, 0), (2, 50), (3, 150)]; // Only rarely mutate the structure
-    let chosen_type = mutation_types.choose_weighted(&mut rng, |&(_, weight)| weight).unwrap().0;
+    let chosen_type = mutation_types
+        .choose_weighted(&mut rng, |&(_, weight)| weight)
+        .unwrap()
+        .0;
 
     match chosen_type {
         0 => {
@@ -1000,7 +1046,7 @@ pub fn mutate_sequence(tree: &mut Tree, node_id: usize) -> SequenceMutation {
             }
             let new_id = max_id + 1;
             let nt = rng.gen_range(0..50);
-            let mut new_token = Token::new(Types::TLV, 1, vec![0], node_id, new_id, nt);
+            let mut new_token = Token::new(TypeTag::TLV, 1, vec![0], node_id, new_id, nt);
             new_token.visual_tag = vec![nt];
             tree.tokens.insert(new_id, new_token);
 

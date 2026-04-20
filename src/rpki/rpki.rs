@@ -17,86 +17,95 @@ use std::{
     hash::{Hash, Hasher},
 };
 
+use crate::labeling::Label;
+use crate::tree_parser::Token;
 use std::error::Error;
+use std::fmt::Display;
+use crate::labels::LabelName;
+use crate::rpki::rpki_utils;
 
-
-pub fn parse_rpki_object(data: &Vec<u8>, typ: &ObjectType) -> Option<RpkiObject> {
-    let root = crate::asn1_parser::parse_asn1_object_slim(data);
-    if root.is_err() {
-        println!("Error during parsing {:?}", root);
-        return None;
-    }
-    let root = root.unwrap();
-    if root.get_len() == 0{
-        return None;
-    }
-
-    let mut tree = Tree::generate_tree(root, typ.to_string());
-    if tree.tokens.len() == 0{
-        return None;
-    }
-    tree.fix_octetstrings(&typ.to_string());
-
-    Some(RpkiObject {
-        content: tree,
-        typ: typ.to_string(),
-    })
+#[deprecated]
+pub fn parse_rpki_object(data: &Vec<u8>, typ: ObjectType) -> Option<RpkiObject> {
+    RpkiObject::parse_as(data, typ)
 }
 
-
+///
 #[derive(Clone, Debug)]
 pub struct RpkiObject {
     pub content: Tree,
-    pub typ: String,
+    pub typ: ObjectType,
 }
 
 /// Implements an RPKI Object
 /// Provides methods to extract common information from the object
 impl RpkiObject {
-    pub fn new(content: Tree, typ: String) -> RpkiObject {
+    pub fn new(content: Tree, typ: ObjectType) -> RpkiObject {
         RpkiObject { content, typ }
     }
 
+    /// Parse bytes into a new [`RpkiObject`]
+    pub fn parse_as(data: &Vec<u8>, typ: ObjectType) -> Option<Self> {
+        let root = match crate::asn1_parser::parse_asn1_object_slim(data) {
+            Ok(root) => root,
+            Err(e) => {
+                println!("Error during parsing {:?}", e);
+                return None;
+            }
+        };
+        if root.get_len() == 0 {
+            return None;
+        }
+
+        let tree_obj_typ = typ.into();
+        let mut tree = Tree::generate_tree(root, tree_obj_typ);
+        if tree.tokens.len() == 0{
+            return None;
+        }
+        if let Some(t) = tree_obj_typ {
+            tree.fix_octetstrings(t);
+        }
+
+        Some(RpkiObject { content: tree, typ })
+    }
 
     pub fn set_notification_uri(&mut self, uri: &str){
-        self.content.set_data_by_label("rpkiNotifyURI", uri.as_bytes().to_vec(), true, true);
+        self.content.set_data_by_label(&LabelName::CertExtSiaNotificationUri.into(), uri.as_bytes().to_vec(), true, true);
         self.content.fix_sizes(true);
     }
 
     pub fn set_manifest_uri(&mut self, uri: &str){
-        self.content.set_data_by_label("rpkiManifestURI", uri.as_bytes().to_vec(), true, true);
+        self.content.set_data_by_label(&LabelName::CertExtSiaRpkiManifestUri.into(), uri.as_bytes().to_vec(), true, true);
         self.content.fix_sizes(true);
     }
 
     pub fn set_crl_uri(&mut self, uri: &str){
-        self.content.set_data_by_label("crlDistributionPoint", uri.as_bytes().to_vec(), true, true);
+        self.content.set_data_by_label(&LabelName::CertExtCrldpUri.into(), uri.as_bytes().to_vec(), true, true);
         self.content.fix_sizes(true);
     }
 
     pub fn set_mft_entries_raw(&mut self, entries: Vec<u8>){
-        self.content.set_data_by_label("manifestHashes", entries, true, false);
+        self.content.set_data_by_label(&LabelName::MftFileList.into(), entries, true, false);
         self.content.fix_sizes(true);
     }
 
     pub fn get_mft_entries_raw(&self) -> Vec<u8>{
-        self.content.encode_node_content_by_label("manifestHashes")
+        self.content.encode_node_content_by_label(&LabelName::MftFileList.into())
     }
 
     pub fn get_crl_entries_raw(&self) -> Vec<u8>{
-        self.content.encode_node_content_by_label("crlEntriesField")
+        self.content.encode_node_content_by_label(&LabelName::IMftCrlEntries.into())
     }
 
     pub fn set_crl_entries_raw(&mut self, data: Vec<u8>){
-        self.content.set_data_by_label("crlEntriesField", data, true, true);
-    } 
+        self.content.set_data_by_label(&LabelName::IMftCrlEntries.into(), data, true, true);
+    }
 
 
     pub fn set_cert_repo_uri(&mut self, data: &str){
-        self.content.set_data_by_label("caRepositoryURI", data.as_bytes().to_vec(), true, true);
+        self.content.set_data_by_label(&LabelName::CertExtSiaCaRepositoryUri.into(), data.as_bytes().to_vec(), true, true);
         self.content.fix_sizes(true);
 
     }
-
 
     pub fn get_roa_vrps(&self) -> Option<Vec<String>> {
         let asn = self.get_roa_asn()?;
@@ -109,13 +118,7 @@ impl RpkiObject {
     }
 
     pub fn get_roa_asn(&self) -> Option<u64> {
-        let raw = self.content.get_raw_by_label("asID");
-
-        if raw.is_none() {
-            return None;
-        }
-
-        let raw = raw.unwrap();
+        let raw = self.content.get_raw_by_label(&LabelName::RoaAsid.into())?;
 
         let mut result: u64 = 0;
         for (_, &byte) in raw.iter().enumerate() {
@@ -125,7 +128,7 @@ impl RpkiObject {
     }
 
     pub fn get_mft_entries(&self) -> Vec<(String, String)>{
-        let node = self.content.get_node_by_label("manifestHashes").unwrap();
+        let node = self.content.get_node_by_label(&LabelName::MftFileList.into()).unwrap();
         let mut entries = vec![];
         for child in &node.children {
             let child_node = self.content.get_node(*child).unwrap();
@@ -145,7 +148,7 @@ impl RpkiObject {
     }
 
     pub fn get_cert_extension_oids(&self) -> Option<Vec<String>>{
-        let ext = self.content.get_node_by_label("extensions")?;
+        let ext = self.content.get_node_by_label(&LabelName::CertFldExtensionsSeq.into())?;
         let mut oids = vec![];
         for child in &ext.children{
             let child_id = self.content.tokens[child].children[0];
@@ -157,7 +160,7 @@ impl RpkiObject {
 
 
     pub fn get_encoded_extensions(&self) -> Option<Vec<(Vec<u8>, bool, Vec<u8>)>>{
-        let ext = self.content.get_node_by_label("extensions")?;
+        let ext = self.content.get_node_by_label(&LabelName::CertFldExtensionsSeq.into())?;
         let mut oids = vec![];
 
         for child in &ext.children{
@@ -201,7 +204,7 @@ impl RpkiObject {
 
 
     pub fn get_signed_attr_oids(&self) -> Option<Vec<String>>{
-        let ext = self.content.get_node_by_label("signerSignedAttributesField")?;
+        let ext = self.content.get_node_by_label(&LabelName::SignerInfoSignedAttributes.into())?;
         let mut oids = vec![];
         for child in &ext.children{
             let child_id = self.content.tokens[child].children[0];
@@ -213,113 +216,262 @@ impl RpkiObject {
 
     pub fn get_cert_mft_uri(&self) -> Option<String>{
         // rpkiManifestURI
-        let data = self.content.get_raw_by_label("rpkiManifestURI")?;
+        let data = self.content.get_raw_by_label(&LabelName::CertExtSiaRpkiManifestUri.into())?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
 
     pub fn get_roa_ips_string(&self) -> Vec<String> {
-        let mut ips = vec![];
-        let n = self.content.get_node_by_label("ipAddrBlocks");
-        if n.is_none() {
-            return ips;
-        }
+        // let mut ips = vec![];
+        // let n = self.content.get_node_by_label("ipAddrBlocks");
+        // if n.is_none() {
+        //     return ips;
+        // }
+        //
+        // let n = n.unwrap();
+        // for child in &n.children {
+        //     let child_node = self.content.get_node(*child).unwrap();
+        //     let family = byt_to_in(&self.content.tokens[&child_node.children[0]].data.clone());
+        //
+        //     for full_ip in &self.content.tokens[&child_node.children[1]].children {
+        //         let nod = self.content.get_node(*full_ip).unwrap();
+        //         if nod.children.len() < 1 {
+        //             println!(
+        //                 "No children in IP node {:?}",
+        //                 BASE64_STANDARD.encode(self.content.encode())
+        //             );
+        //             continue;
+        //         }
+        //         let ip_nod = self.content.get_node(nod.children[0]).unwrap();
+        //         let ip_raw = ip_nod.data.clone();
+        //         let padding = ip_raw[0];
+        //
+        //         let ip = parse_ip(
+        //             &ip_raw[1..].to_vec(),
+        //             family.try_into().unwrap(),
+        //             padding as usize,
+        //         );
+        //         let ml;
+        //         if nod.children.len() == 2 {
+        //             let child = self.content.get_node(nod.children[1]).unwrap();
+        //             if child.data.len() == 1 {
+        //                 ml = child.data[0];
+        //             } else {
+        //                 ml = byt_to_in(&child.data.clone()).try_into().unwrap_or(0);
+        //             };
+        //         } else {
+        //             ml = ip.split("/").collect::<Vec<&str>>()[1]
+        //                 .parse::<u8>()
+        //                 .unwrap();
+        //         }
+        //         if ml == 0 {
+        //             println!(
+        //                 "ML is 0 {}, child len {:?}",
+        //                 ip,
+        //                 self.content.get_node(nod.children[1]).unwrap()
+        //             );
+        //         }
+        //         let final_ip = ip + "," + &ml.to_string();
+        //         ips.push(final_ip);
+        //     }
+        // }
+        // ips
+        let mut vec = self.get_roa_ips_string_v4();
+        vec.extend(self.get_roa_ips_string_v6());
+        vec
+    }
 
-        let n = n.unwrap();
+    pub fn get_roa_ips_string_v4(&self) -> Vec<String> {
+        let Some(n) = self
+            .content
+            .get_node_by_label(&Label::new(LabelName::RoaIpAddressFamilyAddresses, 1))
+        else {
+            return vec![];
+        };
+        self.get_roa_ips_string_from_token(n, 1)
+    }
+
+    pub fn get_roa_ips_string_v6(&self) -> Vec<String> {
+        let Some(n) = self
+            .content
+            .get_node_by_label(&Label::new(LabelName::RoaIpAddressFamilyAddresses, 2))
+        else {
+            return vec![];
+        };
+        self.get_roa_ips_string_from_token(n, 2)
+    }
+
+    fn get_roa_ips_string_from_token(&self, n: &Token, fam: u8) -> Vec<String> {
+        let mut ips = vec![];
+
         for child in &n.children {
             let child_node = self.content.get_node(*child).unwrap();
-            let family = byt_to_in(&self.content.tokens[&child_node.children[0]].data.clone());
 
-            for full_ip in &self.content.tokens[&child_node.children[1]].children {
-                let nod = self.content.get_node(*full_ip).unwrap();
-                if nod.children.len() < 1 {
-                    println!(
-                        "No children in IP node {:?}",
-                        BASE64_STANDARD.encode(self.content.encode())
-                    );
-                    continue;
-                }
-                let ip_nod = self.content.get_node(nod.children[0]).unwrap();
+            if child_node.children.len() < 1 {
+                println!(
+                    "No children in IP node {:?}",
+                    BASE64_STANDARD.encode(self.content.encode())
+                );
+                continue;
+            }
+            let ip = {
+                let ip_nod = self.content.get_node(child_node.children[0]).unwrap();
                 let ip_raw = ip_nod.data.clone();
                 let padding = ip_raw[0];
+                parse_ip(&ip_raw[1..].to_vec(), fam, padding as usize)
+            };
 
-                let ip = parse_ip(
-                    &ip_raw[1..].to_vec(),
-                    family.try_into().unwrap(),
-                    padding as usize,
-                );
-                let ml;
-                if nod.children.len() == 2 {
-                    let child = self.content.get_node(nod.children[1]).unwrap();
-                    if child.data.len() == 1 {
-                        ml = child.data[0];
-                    } else {
-                        ml = byt_to_in(&child.data.clone()).try_into().unwrap_or(0);
-                    };
+            let ml = if child_node.children.len() == 2 {
+                let ml_nod = self.content.get_node(child_node.children[1]).unwrap();
+                if ml_nod.data.len() == 1 {
+                    ml_nod.data[0]
                 } else {
-                    ml = ip.split("/").collect::<Vec<&str>>()[1]
-                        .parse::<u8>()
-                        .unwrap();
+                    byt_to_in(&ml_nod.data.clone()).try_into().unwrap_or(0)
                 }
-                if ml == 0 {
-                    println!(
-                        "ML is 0 {}, child len {:?}",
-                        ip,
-                        self.content.get_node(nod.children[1]).unwrap()
-                    );
-                }
-                let final_ip = ip + "," + &ml.to_string();
-                ips.push(final_ip);
+            } else {
+                ip.split("/").collect::<Vec<&str>>()[1]
+                    .parse::<u8>()
+                    .unwrap()
+            };
+
+            if ml == 0 {
+                println!(
+                    "ML is 0 {}, child len {:?}",
+                    ip,
+                    self.content.get_node(child_node.children[1]).unwrap()
+                );
+            }
+            let final_ip = ip + "," + &ml.to_string();
+            ips.push(final_ip);
+        }
+
+        ips
+    }
+
+    /// # Return
+    ///
+    /// - None, if the IPv4 family is not included
+    /// - An empty vec, if "inherit"
+    /// - A vec of prefixes or ranges, else
+    pub fn get_cert_ips_string_v4(&self) -> Option<Vec<String>> {
+        let n = self
+            .content
+            .get_node_by_label(&Label::new(LabelName::CertExtIpAddressChoice, 1))?;
+        Some(self.get_cert_ips_string_from_token(n, 1))
+    }
+
+    /// # Return
+    ///
+    /// - None, if the IPv6 family is not included
+    /// - An empty vec, if "inherit"
+    /// - A vec of prefixes or ranges, else
+    pub fn get_cert_ips_string_v6(&self) -> Option<Vec<String>> {
+        let n = self
+            .content
+            .get_node_by_label(&Label::new(LabelName::CertExtIpAddressChoice, 2))?;
+        Some(self.get_cert_ips_string_from_token(n, 2))
+    }
+
+    fn get_cert_ips_string_from_token(&self, n: &Token, fam: u8) -> Vec<String> {
+        let mut ips = vec![];
+
+        for child in &n.children {
+            let child_node = self.content.get_node(*child).unwrap();
+
+            if child_node.children.is_empty() {
+                // prefix
+                let ip = {
+                    let ip_raw = child_node.data.clone();
+                    let padding = ip_raw[0];
+                    parse_ip(&ip_raw[1..].to_vec(), fam, padding as usize)
+                };
+                ips.push(ip);
+            } else if child_node.children.len() == 2 {
+                // range
+                let ip_min = {
+                    let ip_nod = self.content.get_node(child_node.children[0]).unwrap();
+                    let ip_raw = ip_nod.data.clone();
+                    let padding = ip_raw[0];
+                    parse_ip(&ip_raw[1..].to_vec(), fam, padding as usize)
+                };
+                let ip_max = {
+                    let ip_nod = self.content.get_node(child_node.children[1]).unwrap();
+                    let ip_raw = ip_nod.data.clone();
+                    let padding = ip_raw[0];
+                    parse_ip(&ip_raw[1..].to_vec(), fam, padding as usize)
+                };
+                ips.push(format!(
+                    "{}-{}",
+                    ip_min.split("/").collect::<Vec<&str>>()[0],
+                    ip_max.split("/").collect::<Vec<&str>>()[0],
+                ));
             }
         }
+
         ips
     }
 
     pub fn get_mft_number(&self) -> Option<u64> {
-        let data = self.content.get_raw_by_label("manifestNumber")?;
+        let data = self
+            .content
+            .get_raw_by_label(&LabelName::MftNumber.into())?;
 
         let number = byt_to_in(&data);
         return Some(number);
     }
 
     pub fn get_cert_ski(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label("subjectKeyIdentifier")?;
+        let data = self.content.get_raw_by_label(&LabelName::CertExtSkiValue.into())?;
         Some(hex::encode(data))
     }
 
     pub fn get_cert_is_root(&self) -> bool {
         return self
             .content
-            .get_node_by_label("authorityKeyIdentifierExtID")
+            .get_node_by_label(&LabelName::CertExtAia.into())
             .is_none();
     }
 
+    pub fn get_cert_issuer_uri(&self) -> Option<String> {
+        let data = self
+            .content
+            .get_raw_by_label(&LabelName::CertExtAiaCaIssuersUri.into())?;
+
+        Some(from_utf8(&data).unwrap_or_default().to_string())
+    }
+
     pub fn get_cert_notification_uri(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label("rpkiNotifyURI")?;
+        let data = self
+            .content
+            .get_raw_by_label(&LabelName::CertExtSiaNotificationUri.into())?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
 
     pub fn get_cert_rsync_repo_uri(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label("caRepositoryURI")?;
+        let data = self
+            .content
+            .get_raw_by_label(&LabelName::CertExtSiaCaRepositoryUri.into())?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
 
     pub fn get_encap_content(&self) -> Option<Vec<u8>> {
-        let data = self.content.get_node_by_label("encapsulatedContent")?;
+        let data = self.content.get_node_by_label(&LabelName::EContentProfiled.into())?;
         let data = self.content.encode_node(data);
         Some(data)
     }
 
     pub fn get_cert_signed_uri(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label("signedObjectURI")?;
+        let data = self
+            .content
+            .get_raw_by_label(&LabelName::CertExtSiaSignedObjectUri.into())?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
 
     pub fn get_cert_signed_uri_repo(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label("signedObjectURI")?;
+        let data = self.content.get_raw_by_label(&LabelName::CertExtSiaSignedObjectUri.into())?;
         let object_uri = from_utf8(&data).unwrap_or_default().to_string();
         let repo_uri = object_uri.split("/").collect::<Vec<&str>>();
         let repo_uri = repo_uri[0..repo_uri.len() - 1]
@@ -331,19 +483,19 @@ impl RpkiObject {
 
 
     pub fn get_cert_aia(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label("caIssuersURI")?;
+        let data = self.content.get_raw_by_label(&LabelName::CertExtAiaCaIssuersUri.into())?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
 
     pub fn get_cert_serial(&self) -> Option<u64> {
-        let data = self.content.get_raw_by_label("serialNumber")?;
+        let data = self.content.get_raw_by_label(&LabelName::CertFldSerialNumber.into())?;
 
         Some(byt_to_in(&data))
     }
 
     pub fn get_cert_serial_raw(&self) -> Option<Vec<u8>> {
-        let data = self.content.get_raw_by_label("serialNumber")?;
+        let data = self.content.get_raw_by_label(&LabelName::CertFldSerialNumber.into())?;
 
         Some(data.clone())
     }
@@ -351,24 +503,32 @@ impl RpkiObject {
 
 
     pub fn get_cert_aki(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label("authorityKeyIdentifier")?;
+        let data = self
+            .content
+            .get_raw_by_label(&LabelName::CertExtAkiKeyIdentifier.into())?;
         Some(hex::encode(data))
     }
 
     pub fn get_cert_issuername(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label("issuerName")?;
+        let data = self
+            .content
+            .get_raw_by_label(&LabelName::CertFldIssuerAttributeValue.into())?;
 
         Some(from_utf8(&data).unwrap_or_default().to_string())
     }
 
     pub fn get_cert_subjectname(&self) -> Option<String> {
-        let data = self.content.get_raw_by_label("subjectName")?;
+        let data = self
+            .content
+            .get_raw_by_label(&LabelName::CertFldSubjectAttributeValue.into())?;
 
         Some(from_utf8(&data).unwrap().to_string())
     }
 
     pub fn get_signature_oid(&self) -> String {
-        let data = self.content.get_raw_by_label("signerSignatureAlgorithmOid");
+        let data = self
+            .content
+            .get_raw_by_label(&LabelName::SignatureAlgorithmId.into()); // TODO validate correctness
         if data.is_none() {
             return "Unknown".to_string();
         }
@@ -376,36 +536,36 @@ impl RpkiObject {
     }
 
     pub fn get_cert_validity_not_before(&self) -> Option<DateTime<Utc>>{
-        
-        let data = self.content.get_raw_by_label("notBefore")?;
+
+        let data = self.content.get_raw_by_label(&LabelName::CertFldValidityNotBefore.into())?;
 
         let s = from_utf8(&data).unwrap_or_default().to_string();
 
         Self::format_timestamp(&s)
-        
+
     }
 
     pub fn get_cert_validity_not_after(&self) -> Option<DateTime<Utc>>{
-        
-        let data = self.content.get_raw_by_label("notAfter")?;
+
+        let data = self.content.get_raw_by_label(&LabelName::CertFldValidityNotAfter.into())?;
 
         let s = from_utf8(&data).unwrap_or_default().to_string();
 
         Self::format_timestamp(&s)
-        
+
     }
 
     pub fn get_mft_validity_not_after(&self) -> Option<DateTime<Utc>>{
-        
-        let data = self.content.get_raw_by_label("nextUpdate")?;
+
+        let data = self.content.get_raw_by_label(&LabelName::MftNextUpdate.into())?;
 
         let s = from_utf8(&data).unwrap_or_default().to_string();
 
         Self::format_timestamp(&s)
-        
+
     }
 
-    
+
 
 
     fn format_timestamp(timestamp: &str) -> Option<DateTime<Utc>> {
@@ -431,8 +591,7 @@ impl RpkiObject {
 
 }
 
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, std::cmp::Eq, Hash, Copy)]
+#[derive(Copy, Clone, PartialEq, serde::Serialize, serde::Deserialize, Eq, Hash, Debug)]
 pub enum ObjectType {
     ROA,
     MFT,
@@ -485,14 +644,14 @@ impl ObjectType {
         }
     }
 
-    pub fn is_payload(&self) -> bool{
+    pub fn is_payload(&self) -> bool {
         match self {
             ObjectType::ROA | ObjectType:: IROA | ObjectType::ASA | ObjectType::GBR => true,
             _ => false,
         }
     }
 
-    pub fn get_extension(&self) -> String{
+    pub fn get_extension(&self) -> String {
         format!(".{}", self.to_string())
     }
 
@@ -520,12 +679,11 @@ impl ObjectType {
 
         *choices.choose(&mut rng).unwrap()
     }
-
 }
 
-impl ToString for ObjectType {
-    fn to_string(&self) -> String {
-        match self {
+impl Display for ObjectType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
             ObjectType::ROA => "roa".to_string(),
             ObjectType::MFT => "mft".to_string(),
             ObjectType::CERTCA => "cer".to_string(),
@@ -543,7 +701,8 @@ impl ToString for ObjectType {
             ObjectType::ICRL => "icrl".to_string(),
             ObjectType::IGBR => "igbr".to_string(),
             ObjectType::ICER => "icer".to_string(),
-        }
+        };
+        write!(f, "{}", str)
     }
 }
 
@@ -582,41 +741,6 @@ impl TAL {
             rsync_uri,
             certificate,
         })
-    }
-}
-
-pub fn ipstring_to_bytes(ip: &str, family: &IPType) -> Vec<u8> {
-    let mut parts = vec![];
-
-    let ip_no_pre = ip.split("/").collect::<Vec<&str>>()[0];
-    if family == &IPType::V4 {
-        for el in ip_no_pre.split(".") {
-            let ell = el.parse::<u8>();
-            if ell.is_err() {
-                println!("Couldnt parse {:?}", el);
-                return vec![];
-            }
-            let el = ell.unwrap();
-            parts.push(el);
-        }
-        return parts;
-    } else {
-        for el in ip_no_pre.split(":") {
-            if el.is_empty() {
-                parts.push(0);
-                parts.push(0);
-            } else {
-                let ell = u16::from_str_radix(el, 16);
-                if ell.is_err() {
-                    println!("Couldnt parse {:?}", el);
-                    return vec![];
-                }
-                let el = ell.unwrap();
-                parts.push((el >> 8) as u8);
-                parts.push((el & 0xFF) as u8);
-            }
-        }
-        return parts;
     }
 }
 
@@ -729,7 +853,7 @@ impl Entry {
 
         let vrps_ip = IPEntry {
             ip_s: ip.clone(),
-            ip: ipstring_to_bytes(&ip, &family),
+            ip: rpki_utils::ipstring_to_bytes(&ip, &family),
             prefix,
             max_len: ml,
             typ: family,
@@ -762,7 +886,7 @@ impl Entry {
 
         let vrps_ip = IPEntry {
             ip_s: ip.clone(),
-            ip: ipstring_to_bytes(&ip, &family),
+            ip: rpki_utils::ipstring_to_bytes(&ip, &family),
             prefix,
             max_len: ml,
             typ: family,
@@ -792,7 +916,7 @@ impl Entry {
 
         let vrps_ip = IPEntry {
             ip_s: ip.clone(),
-            ip: ipstring_to_bytes(&ip, &family),
+            ip: rpki_utils::ipstring_to_bytes(&ip, &family),
             prefix,
             max_len: roa.max_length,
             typ: family,
@@ -925,7 +1049,7 @@ impl VRPS {
                     if optype != ObjectType::ROA {
                         return None;
                     }
-                    let tree = parse_rpki_object(&data, &optype);
+                    let tree = RpkiObject::parse_as(&data, optype);
                     if tree.is_none() {
                         println!("Failed to parse {:?}", uri);
                         return None;
@@ -1055,12 +1179,12 @@ impl VRPS {
     }
 
     pub fn contains_entry_asn(&self, asn: u32) -> bool {
-        for con in &self.content {
-            if con.asn == asn {
+        for entry in &self.content {
+            if entry.asn == asn {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     pub fn contains_entry_prefix(&self, prefix: &str) -> Vec<u32> {
