@@ -242,6 +242,8 @@ pub enum LabelName {
     CrlExtCrln,
     CrlExtCrlnOid,
     CrlExtCrlnValue,
+    /// CRLNumber ::= INTEGER (0..MAX)
+    CertExtCrlnCrlNumber,
 
     /// signerInfos
     SignedObjectSignerInfos,
@@ -384,27 +386,27 @@ impl LabelName {
             CrlFldEntries => "crlEntries",
 
             // Authority Key Identifier
-            CertExtAki => "authorityKeyIdentifier",
+            CertExtAki => "authorityKeyIdentifierExt",
             CertExtAkiOid => "authorityKeyIdentifierOid",
             CertExtAkiValue => "authorityKeyIdentifierValue",
             CertExtAkiSeq => "authorityKeyIdentifierSeq",
             CertExtAkiKeyIdentifier => "authorityKeyIdentifierKeyIdentifier",
 
             // Subject Key Identifier
-            CertExtSki => "subjectKeyIdentifier",
+            CertExtSki => "subjectKeyIdentifierExt",
             CertExtSkiOid => "subjectKeyIdentifierOid",
             CertExtSkiValue => "subjectKeyIdentifierValue",
             CertExtSkiKeyIdentifier => "subjectKeyIdentifierKeyIdentifier",
 
             // Key Usage
-            CertExtKu => "keyUsage",
+            CertExtKu => "keyUsageExt",
             CertExtKuOid => "keyUsageOid",
             CertExtKuCritc => "keyUsageValue",
             CertExtKuValue => "keyUsageValue",
             CertExtKuBitstring => "keyUsageBitstring",
 
             // Certificate Policies
-            CertExtCp => "certificatePolicies",
+            CertExtCp => "certificatePoliciesExt",
             CertExtCpOid => "certificatePoliciesOid",
             CertExtCpCritc => "certificatePoliciesCritc",
             CertExtCpValue => "certificatePoliciesValue",
@@ -417,7 +419,7 @@ impl LabelName {
             CertExtCpPolicyQualifier => "cpPolicyQualifier",
 
             // Basic Constraints
-            CertExtBc => "basicConstraints",
+            CertExtBc => "basicConstraintsExt",
             CertExtBcOid => "basicConstraintsOid",
             CertExtBcCritc => "basicConstraintsCritc",
             CertExtBcValue => "basicConstraintsValue",
@@ -425,7 +427,7 @@ impl LabelName {
             CertExtBcCa => "basicConstraintsCa",
 
             // CRL Distribution Points
-            CertExtCrldp => "crlDistributionPoints",
+            CertExtCrldp => "crlDistributionPointsExt",
             CertExtCrldpOid => "crlDistributionPointsOid",
             CertExtCrldpValue => "crlDistributionPointsValue",
             CertExtCrldpSeq => "crlDistributionPointsSeq",
@@ -435,7 +437,7 @@ impl LabelName {
             CertExtCrldpUri => "crlDistributionPointsUri",
 
             // Authority Information Access
-            CertExtAia => "authorityInformationAccess",
+            CertExtAia => "authorityInformationAccessExt",
             CertExtAiaOid => "authorityInformationAccessOid",
             CertExtAiaValue => "authorityInformationAccessValue",
             CertExtAiaSeq => "authorityInformationAccessSeq",
@@ -444,7 +446,7 @@ impl LabelName {
             CertExtAiaCaIssuersUri => "aiaCaIssuersUri",
 
             // Subject Information Access
-            CertExtSia => "subjectInformationAccess",
+            CertExtSia => "subjectInformationAccessExt",
             CertExtSiaOid => "subjectInformationAccessOid",
             CertExtSiaValue => "subjectInformationAccessValue",
             CertExtSiaSeq => "subjectInformationAccessSeq",
@@ -459,7 +461,7 @@ impl LabelName {
             CertExtSiaSignedObjectUri => "siaSignedObjectURI",
 
             // IP Address Delegation Extension
-            CertExtIp => "ipAddressDelegation",
+            CertExtIp => "ipAddressDelegationExt",
             CertExtIpOid => "ipAddressDelegationOid",
             CertExtIpCritc => "ipAddressDelegationCritc",
             CertExtIpValue => "ipAddressDelegationValue",
@@ -481,7 +483,7 @@ impl LabelName {
             CertExtIpAddressRangeMax(_ipv) => "ipAddressDelegation_rangeMax",
 
             // Autonomous System Identifier Delegation Extension
-            CertExtAsid => "asIdDelegation",
+            CertExtAsid => "asIdDelegationExt",
             CertExtAsidOid => "asIdDelegationOid",
             CertExtAsidCritc => "asIdDelegationCritc",
             CertExtAsidValue => "asIdDelegationValue",
@@ -496,9 +498,10 @@ impl LabelName {
             CertExtAsidRdiRangeMax => "asIdDelegationRdiRangeMax",
 
             // CRL Number Extension
-            CrlExtCrln => "crlNumber",
+            CrlExtCrln => "crlNumberExt",
             CrlExtCrlnOid => "crlNumberOid",
             CrlExtCrlnValue => "crlNumberValue",
+            CertExtCrlnCrlNumber => "crlNumberCrlNumber",
 
             // signerInfos
             SignedObjectSignerInfos => "signerInfos",

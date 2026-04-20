@@ -690,7 +690,10 @@ pub fn label_extensions_rpki() -> HashMap<&'static str, LabelObject> {
         vec![
             CrlExtCrlnOid.into(),
             // TODO check if this is the correct labelling
-            CrlExtCrlnValue.into(),
+            LabelObject::label(
+                CrlExtCrlnValue.into(),
+                vec![CertExtCrlnCrlNumber.into()],
+            ),
         ],
     );
 
