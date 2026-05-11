@@ -1,7 +1,7 @@
 ## Overview
 
 **cure_asn1** is a Rust library designed for parsing RPKI objects encoded in ASN.1 format, as well as handling RRDP (RPKI Repository Delta Protocol) objects. 
-The library is build for efficiency and flexibility: **It does not enforce any structure or validation checks**. It will parse any well-formated DER/BER encoded object.
+The library is built for efficiency and flexibility: **It does not enforce any structure or validation checks**. It will parse any well-formatted DER/BER encoded object.
 
 Note: This tool is part of the **CURE RPKI Toolchain**.
 
@@ -10,7 +10,7 @@ Note: This tool is part of the **CURE RPKI Toolchain**.
 
 ## Features
 
-- 📜 **ASN.1 Parsing**: Decode and parse any object encoded ASN.1. Support for DER, CER, BER.
+- 📜 **ASN.1 Parsing**: Decode and parse any object encoded in ASN.1. Support for DER, CER, BER.
 - 🌐 **RPKI Support**: Handle all currently defined RPKI objects (TAL, CER, MFT, ROA, CRL, GBR, ASPA) and RRDP objects (Notification, Snapshot, Delta).
 - ⚡ **High Performance**: Built in Rust for speed and reliability.
 - 🛠️ **Customizable**: Extend and integrate the library into your own tools. 
@@ -38,7 +38,7 @@ Parse RPKI objects by calling
 cure_asn1::rpki::parse_rpki_object(). 
 ```
 
-Each object is represented as a labled Abstract Syntax Tree (*tree_parser::Tree*). Access a field of the tree through its *label* or its *tree node*.
+Each object is represented as a labeled Abstract Syntax Tree (*tree_parser::Tree*). Access a field of the tree through its *label* or its *tree node*.
 For RPKI objects, we provide basic functionality to access most important object fields in 
 ```rust
 rpki::RPKIObject 
