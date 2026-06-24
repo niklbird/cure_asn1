@@ -166,6 +166,7 @@ pub fn mutate_token(tree: &mut Tree, id: usize) -> TokenMutation {
         &Types::NULL => mutate_tlv(tree, id),
         &Types::ObjectIdentifier => mutate_tlv(tree, id),
         &Types::Cont0 => mutate_tlv(tree, id),
+        &Types::Cont6 => mutate_tlv(tree, id),
         &Types::Integer => mutate_tlv(tree, id),
         &Types::IA5String => mutate_tlv(tree, id),
     };

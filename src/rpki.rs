@@ -204,6 +204,7 @@ pub enum ObjectType {
     CERTCA,
     CERTEE,
     CERTROOT,
+    CERTSEC,
     CRL,
     ASA,
     GBR,
@@ -216,6 +217,7 @@ pub enum ObjectType {
     ICRL,
     IGBR,
     ICER,
+    REP,
 }
 
 impl ObjectType {
@@ -228,6 +230,7 @@ impl ObjectType {
             "crl" => ObjectType::CRL,
             "asa" => ObjectType::ASA,
             "gbr" => ObjectType::GBR,
+            "rep" => ObjectType::REP,
             "notification" => ObjectType::NOTIFICATION,
             "snapshot" => ObjectType::SNAPSHOT,
             "delta" => ObjectType::DELTA,
@@ -243,6 +246,7 @@ impl ObjectType {
             "crl" => true,
             "asa" => true,
             "gbr" => true,
+            "rep" => true,
             "notification" => true,
             "snapshot" => true,
             "delta" => true,
@@ -252,7 +256,7 @@ impl ObjectType {
 
     pub fn is_payload(&self) -> bool{
         match self {
-            ObjectType::ROA | ObjectType::ASA | ObjectType::GBR => true,
+            ObjectType::ROA | ObjectType::ASA | ObjectType::GBR | ObjectType::REP => true,
             _ => false,
         }
     }
@@ -277,8 +281,10 @@ impl ObjectType {
             ObjectType::CRL,
             ObjectType::CERTCA,
             ObjectType::CERTROOT,
+            ObjectType::CERTSEC,
             ObjectType::ASA,
             ObjectType::GBR,
+            ObjectType::REP,
         ] {
             choices.push(op_type);
         }
@@ -296,6 +302,7 @@ impl ToString for ObjectType {
             ObjectType::CERTCA => "cer".to_string(),
             ObjectType::CERTEE => "cer".to_string(),
             ObjectType::CERTROOT => "cer".to_string(),
+            ObjectType::CERTSEC => "cer".to_string(),
             ObjectType::CRL => "crl".to_string(),
             ObjectType::ASA => "asa".to_string(),
             ObjectType::GBR => "gbr".to_string(),
@@ -308,6 +315,7 @@ impl ToString for ObjectType {
             ObjectType::ICRL => "icrl".to_string(),
             ObjectType::IGBR => "igbr".to_string(),
             ObjectType::ICER => "icer".to_string(),
+            ObjectType::REP => "rep".to_string(),
         }
     }
 }

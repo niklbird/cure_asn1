@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::{
-    asn1_parser::encode_asn1_length, labeling::{label_tree, LabelObject}, mutator::{self, Mutation}, rpki_utils::{self, byt_to_in}, tree_paths::{CertificatePaths, MFTPaths, ROAPaths}
+    asn1_parser::encode_asn1_length, labeling::{label_tree, LabelObject}, mutator::{self, Mutation}, rpki::ObjectType, rpki_utils::{self, byt_to_in}, tree_paths::{CertificatePaths, MFTPaths, ROAPaths}
 };
 use rand::prelude::SliceRandom;
 use rand::Rng;
@@ -25,14 +25,16 @@ pub enum Types {
     BitString,
     ObjectIdentifier,
     Cont0,
+    Cont6,
     Integer,
     IA5String,
 }
 
 impl Types {
+    // the number is interpreted as hex. For example 30 is converted to 0x30 = 48
     pub fn to_type_id(&self) -> u8 {
         match self {
-            Types::Sequence => int_to_hex(30),
+            Types::Sequence => int_to_hex(30), // 48
             Types::Set => int_to_hex(31),
             Types::OctetString => int_to_hex(4),
             Types::Implicit => int_to_hex(0),
@@ -41,6 +43,7 @@ impl Types {
             Types::BitString => int_to_hex(3),
             Types::ObjectIdentifier => int_to_hex(6),
             Types::Cont0 => int_to_hex(80),
+            Types::Cont6 => int_to_hex(86), // 134
             Types::Integer => int_to_hex(2),
             Types::IA5String => int_to_hex(22),
         }
@@ -52,6 +55,8 @@ impl Types {
             0x31 | 0x51 => Types::Set,
             0x4 | 0x24 => Types::OctetString,
             0xA0 | 0xA1 | 0xA2 | 0xA3 | 0xA4 | 0xA5 | 0xA6 => Types::Implicit,
+            0x6 => Types::ObjectIdentifier,
+            0x86 => Types::Cont6,
             _ => Types::TLV,
         }
     }
@@ -68,6 +73,7 @@ pub fn get_type_id(typ: Types) -> u8 {
         Types::BitString => int_to_hex(3),
         Types::ObjectIdentifier => int_to_hex(6),
         Types::Cont0 => int_to_hex(80),
+        Types::Cont6 => int_to_hex(86),
         Types::Integer => int_to_hex(2),
         Types::IA5String => int_to_hex(22),
     }
@@ -83,6 +89,7 @@ pub fn id2type(id: u8) -> Types {
         5 => Types::NULL,
         6 => Types::ObjectIdentifier,
         80 => Types::Cont0,
+        86 => Types::Cont6,
         _ => panic!("Error when converting id to type"),
     }
 }
@@ -1187,6 +1194,15 @@ impl Tree {
                 }
                 return data;
             }
+            Types::Cont6 => {
+                if token.children.is_empty() {
+                    data.extend(token.data.clone());
+                    return data;
+                } else {
+                    data.extend(self.encode_node(self.get_node(token.children[0]).unwrap()));
+                }
+                return data;
+            }
             Types::Integer => {
                 data.extend(token.data.clone());
                 for id in &token.children {
@@ -1402,6 +1418,25 @@ impl Tree {
                     return (c, s);
                 }
             }
+            Types::Cont6 => {
+                let mut c = 0;
+                let mut s = String::new();
+                let descr;
+                if node.info.is_empty() {
+                    descr = node_id.to_string();
+                } else {
+                    descr = node.info.clone();
+                }
+                if node.children.is_empty() {
+                    s += &format!("{} [{}] Typ134 {:?}\n", space, descr, node.data);
+                    return (1, s);
+                } else {
+                    let res = self.to_string(node.children[0], cur_depth + 1);
+                    c += res.0;
+                    s += &res.1;
+                    return (c, s);
+                }
+            }
             Types::Integer => {
                 let mut c = 0;
                 let mut s = String::new();
@@ -1573,30 +1608,30 @@ impl Tree {
         let id = self.labels.get(label);
         if id.is_some() {
             let id = id.unwrap();
-
             // First: Remove all children of the node (They are not needed anymore)
             if self.tokens.get_mut(id).unwrap().children.len() > 0 {
                 self.get_offspring_ids(*id).iter().for_each(|x| {
                     self.tokens.remove(x);
                 });
             }
-
-
+            
             let new_root = self.tokens.keys().max().unwrap_or(&0) + 1; // Insert new tokens behind existing tokens
-
+            // Generate new tree which we later mount into larger existing tree.
             // Concept: Turn the new element structure into tree (token ids chosen so they dont collide with existing tree), then add the new tokens into this existing tree. 
             // To add, the interface token, i.e. the token thats added to the existing tree to connect to new tree needs to have the correct id (the id of the token its replacing).
             let tree = Tree::generate_tree_index(element, "".to_string(), new_root);
-
             for token in tree.tokens.values(){
+                // Skip new_root
                 if token.id == new_root{
                     continue;
                 }
 
+                // let children of new_root point to parent new_root
                 let mut new_token = token.clone();
                 if new_token.parent == new_root{
                     new_token.parent = *id;
                 }
+                // insert non-new_root nodes into larger tree.
                 self.tokens.insert(new_token.id, new_token);
             }
 
@@ -1606,6 +1641,9 @@ impl Tree {
             replacing_token.manipulated = manipulated;
             replacing_token.tainted = self_taint;
             self.tokens.insert(*id, replacing_token);
+            //TODO: self.cur_index is not updated when removing and adding nodes in this function.
+            //This should be fixed. At the moment we circumvent this by always deleting the manifest list before we add nodes
+            //self.cur_index = tree.cur_index;
 
             self.taint_parents(*id);
             return true;
