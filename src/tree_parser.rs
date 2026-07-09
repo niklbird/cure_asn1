@@ -200,7 +200,7 @@ impl Token {
     }
 
     pub fn to_string_val(&self) -> (String, (u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, String, Vec<u8>)) {
-        let info_str = self.info.map(|l| format!("{:?}", l)).unwrap_or_default();
+        let info_str = self.info.clone().map(|l| format!("{:?}", l)).unwrap_or_default();
 
         let tag_display = format!("{:?}", &self.visual_tag[0]);
         let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
@@ -221,7 +221,7 @@ impl Token {
         if self.data.len() == 0{
             return "".to_string();
         }
-        if let Some(label) = self.info {
+        if let Some(label) = self.info.clone() {
             let ip_fam = if label.is_ipv4() {
                 Some(2)
             } else if label.is_ipv6() {
@@ -254,7 +254,7 @@ impl Token {
         }
         let human_readable = format!("0x{}", hex::encode(&self.data));
 
-        if let Some(info) = self.info {
+        if let Some(info) = self.info.clone() {
             if info.is_afi() {
                 if self.data == [0, 1]{
                     return ("IPv4 (0x01)".to_string(), human_readable);
@@ -291,7 +291,7 @@ impl Token {
 
     /// Returns: (What should be shown when clicked, what should be shown in overview, binary data for hex representation)
     pub fn to_string_pretty(&self) -> (String, (u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, String, Vec<u8>)){
-        let info_str = self.info.map(|l| format!("{:?}", l)).unwrap_or_default();
+        let info_str = self.info.clone().map(|l| format!("{:?}", l)).unwrap_or_default();
         match self.tag_u{
             0x01 => {
                 let tag_display = if self.tag_u == self.visual_tag[0] {
@@ -612,6 +612,16 @@ pub enum Asn1ObjType {
 }
 
 impl Asn1ObjType {
+    pub fn to_string(&self) -> String {
+        match self {
+            Self::SignedObj(ect) => format!("Signed Object ({:?})", ect),
+            Self::Cert => "Certificate".to_string(),
+            Self::Tls => "TLS Certificate".to_string(),
+            Self::Crl => "Certificate Revocation List".to_string(),
+            Self::IRoa => "ROA".to_string(),
+            Self::IMft => "Manifest".to_string(),
+        }
+    }
     pub(crate) fn is_signed_obj(&self) -> bool {
         match self {
             Self::SignedObj(_) => true,
@@ -726,11 +736,11 @@ impl Tree {
         let mut token = Token::new(TypeTag::from_type_id(tag), content.len(), content, parent, new_id, tag);
 
         token.visual_tag = vec![tag];
-        token.info = label;
+        token.info = label.clone();
         token.tainted = true;
 
         if let Some(label) = label {
-            self.labels.insert(label, new_id);
+            self.labels.insert(label.clone(), new_id);
         }
         self.tokens.insert(new_id, token);
 
@@ -791,7 +801,7 @@ impl Tree {
         self.tokens.insert(new_id, new_token);
         self.tokens.get_mut(&parent).unwrap().children.push(new_id);
         if label.is_some(){
-            self.labels.insert(label.unwrap(), new_id);
+            self.labels.insert(label.unwrap().clone(), new_id);
         }
         return new_id;
     }
@@ -986,7 +996,7 @@ impl Tree {
         let parent = self.tokens.get_mut(&node_id).unwrap().parent;
         *self.tokens.get_mut(&node_id).unwrap() = new_nodes[&new_node_id].clone();
         if let Some(label) = &new_nodes[&new_node_id].info {
-            self.labels.insert(*label, node_id);
+            self.labels.insert(label.clone(), node_id);
         }
 
         // Find next insertion location
@@ -1397,7 +1407,7 @@ impl Tree {
         // Some labels might need to be generated dynamically (adapted to the tree structure)
         // -> Call the label function if available to generate the labels for the current node dynamically
         match label_obj {
-            LabelObject::Label { label, children } => self.label_children(id, *label, children),
+            LabelObject::Label { label, children } => self.label_children(id, label.clone(), children),
             LabelObject::Function { label_function } => {
                 let (label, children) = label_function(id, self);
                 self.label_children(id, label, &children)
@@ -1406,7 +1416,7 @@ impl Tree {
     }
 
     fn label_children(&mut self, id: usize, label: Label, children: &Vec<LabelObject>) {
-        self.tokens.get_mut(&id).unwrap().info = Some(label);
+        self.tokens.get_mut(&id).unwrap().info = Some(label.clone());
         self.labels.insert(label, id);
 
         for i in 0..children.len() {
@@ -1624,6 +1634,7 @@ impl Tree {
                 } else {
                     let descr = node
                         .info
+                        .clone()
                         .map(|l| format!("{}.{}", l.name.short_label(), l.index))
                         .unwrap_or_else(|| node_id.to_string());
 
@@ -1634,7 +1645,7 @@ impl Tree {
             }
             TypeTag::TLV => {
                 let descr = node
-                    .info
+                    .info.clone()
                     .map(|l| format!("{}.{}", l.name.short_label(), l.index))
                     .unwrap_or_else(|| node_id.to_string());
                 if node.children.len() > 0 {
@@ -1661,7 +1672,7 @@ impl Tree {
             }
             TypeTag::OctetString => {
                 let descr = node
-                    .info
+                    .info.clone()
                     .map(|l| format!("{}.{}", l.name.short_label(), l.index))
                     .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
@@ -1690,7 +1701,7 @@ impl Tree {
             }
             TypeTag::BitString => {
                 let descr = node
-                    .info
+                    .info.clone()
                     .map(|l| format!("{}.{}", l.name.short_label(), l.index))
                     .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
@@ -1705,7 +1716,7 @@ impl Tree {
             }
             TypeTag::ObjectIdentifier => {
                 let descr = node
-                    .info
+                    .info.clone()
                     .map(|l| format!("{}.{}", l.name.short_label(), l.index))
                     .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
@@ -1720,7 +1731,7 @@ impl Tree {
             }
             TypeTag::Null => {
                 let descr = node
-                    .info
+                    .info.clone()
                     .map(|l| format!("{}.{}", l.name.short_label(), l.index))
                     .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
@@ -1735,7 +1746,7 @@ impl Tree {
             }
             TypeTag::Cont0 => {
                 let descr = node
-                    .info
+                    .info.clone()
                     .map(|l| format!("{}.{}", l.name.short_label(), l.index))
                     .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
@@ -1750,7 +1761,7 @@ impl Tree {
             }
             TypeTag::Integer => {
                 let descr = node
-                    .info
+                    .info.clone()
                     .map(|l| format!("{}.{}", l.name.short_label(), l.index))
                     .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
@@ -1765,7 +1776,7 @@ impl Tree {
             }
             TypeTag::IA5String => {
                 let descr = node
-                    .info
+                    .info.clone()
                     .map(|l| format!("{}.{}", l.name.short_label(), l.index))
                     .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
@@ -1805,7 +1816,7 @@ impl Tree {
         }
         for id in &node.children {
             let child_node = self.get_node(*id).unwrap();
-            if child_node.info == Some(path[0]) {
+            if child_node.info == Some(path[0].clone()) {
                 return self.get_id_by_path_rec(child_node, &path[1..]);
             }
         }
@@ -1922,7 +1933,7 @@ impl Tree {
                 if new_token.parent == new_root {
                     new_token.parent = id;
                 }
-                if let Some(label) = new_token.info {
+                if let Some(label) = new_token.info.clone() {
                     self.labels.insert(label, new_token.id);
                 }
                 self.tokens.insert(new_token.id, new_token);
