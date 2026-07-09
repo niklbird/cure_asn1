@@ -8,7 +8,7 @@ use crate::rpki::rrdp_xml;
 
 
 pub fn random_uuid() -> String {
-    let mut rand_bytes: [u8; 16] = rand::thread_rng().gen();
+    let mut rand_bytes: [u8; 16] = rand::thread_rng().gen(); 
 
     // Set the version (4) in the correct position
     rand_bytes[6] = (rand_bytes[6] & 0x0F) | 0x40;
@@ -262,6 +262,7 @@ pub fn create_delta(
 
     for (uri, hash, data) in publishes {
         if hash == "" {
+            println!("This got executed");
             writer.write(XmlEvent::start_element("publish").attr("uri", &uri))?;
         } else {
             writer.write(

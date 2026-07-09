@@ -721,6 +721,12 @@ impl Tree {
         }
     }
 
+    pub fn remove_node_by_label(&mut self, label: &Label){
+        if let Some(val) = self.labels.get(label){
+            self.tokens.remove(val);
+        }
+    }
+
     pub fn add_node(&mut self, tag: u8, content: Vec<u8>, parent: usize, label: Option<Label>, child_position: Option<usize>) -> usize {
         let new_id = self.cur_index + 1;
         let mut token = Token::new(TypeTag::from_type_id(tag), content.len(), content, parent, new_id, tag);

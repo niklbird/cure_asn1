@@ -2,7 +2,7 @@
 //! [`Set`], [`OctetString`], and the special-purpose [`TLV`] and [`Implicit`].
 //! [`Element`] lists the variants that are supported.
 //!
-//! These elements serve in interpreting RPKI ASN.1 encoded objects and is no exact 1:1
+//! These elements serve in interpreting ASN.1 encoded objects and is no exact 1:1
 //! representation of ASN.1 types.
 //! Instead, this is a framework that allows generic interpretation of data and only explicitly
 //! supports specific elements used for nesting.
@@ -246,7 +246,7 @@ pub fn proc_nested(
                 }
             }
         } else {
-            if data[cursor] == 128 {
+            if data[cursor] == 128 { // Undefined length
                 cursor += 1;
                 let first_occurrence = data[cursor..]
                     .windows(2)
@@ -344,6 +344,8 @@ pub fn parse_asn1_object(data: &Vec<u8>) -> Result<(Vec<u8>, Element), ASN1Error
     Ok((der, el[0].clone()))
 }
 
+/// Parse an ASN.1 object, only return the Element
+/// More efficient since it excludes the DER bytes
 pub fn parse_asn1_object_slim(data: &Vec<u8>) -> Result<Element, ASN1Error> {
     if data.len() == 0{
         return Err(ASN1Error::new("Data was empty".to_string()));

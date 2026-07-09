@@ -1,6 +1,5 @@
 
-/// A [`LabelName`] uniquely names a specific token in an ASN.1 tree of an RPKI object (certificate,
-/// CMS signed object, etc.).
+/// A [`LabelName`] uniquely names a specific token in an ASN.1 tree
 #[rustfmt::skip]
 #[derive(Clone, Debug, PartialEq, Eq, Copy, serde::Serialize, serde::Deserialize, Hash, PartialOrd, Ord)]
 pub enum LabelName {

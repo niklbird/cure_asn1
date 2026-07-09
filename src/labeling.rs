@@ -981,7 +981,7 @@ pub fn label_certificate(typ: Asn1ObjType) -> LabelObject {
                 CertFldSubjectPublicKeyInfoAlgorithm.into(),
                 vec![
                     CertFldSubjectPublicKeyInfoAlgorithmId.into(),
-                    CertFldSubjectPublicKeyInfoAlgorithmParameters.into(),
+                    CertFldSubjectPublicKeyInfoAlgorithmParameters.into(), 
                 ],
             ),
             CertFldSubjectPublicKeyInfoPublicKey.into(),
