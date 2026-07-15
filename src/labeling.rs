@@ -1241,7 +1241,8 @@ pub fn label_tree(typ: Asn1ObjType) -> Option<LabelObject> {
 
             Some(content_info)
         }
-        Cert | Tls | Crl => Some(label_certificate(typ)),
+        Cert | Tls | Csr | Crl => Some(label_certificate(typ)),
+        Csr => Some(label_certificate(typ)),
         IRoa => Some(label_iroa()),
         IMft  => {
             unimplemented!("imft")

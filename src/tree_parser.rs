@@ -604,6 +604,8 @@ pub enum Asn1ObjType {
     Cert,
     /// TLS Certificate
     Tls,
+    /// Certificate Signing Request
+    Csr,
     /// Certificate Revocation List [RFC6487](https://datatracker.ietf.org/doc/rfc6487)
     Crl,
 
@@ -617,6 +619,7 @@ impl Asn1ObjType {
             Self::SignedObj(ect) => format!("Signed Object ({:?})", ect),
             Self::Cert => "Certificate".to_string(),
             Self::Tls => "TLS Certificate".to_string(),
+            Self::Csr => "Certificate Signing Request".to_string(),
             Self::Crl => "Certificate Revocation List".to_string(),
             Self::IRoa => "ROA".to_string(),
             Self::IMft => "Manifest".to_string(),
@@ -634,6 +637,7 @@ impl Asn1ObjType {
             Self::SignedObj(ect) => ect.filename_extension(),
             Self::Cert => "cer",
             Self::Tls => "tls",
+            Self::Csr => "csr",
             Self::Crl => "crl",
             Self::IRoa => "iroa",
             Self::IMft => "imft",
@@ -1228,6 +1232,10 @@ impl Tree {
 
         if tree.get_root().children.len() == 3 {
             let children = tree.get_root().children.clone();
+            let info_children_len = tree.tokens.get(&children[0]).unwrap().children.len();
+            if info_children_len == 4 {
+                return Some(Asn1ObjType::Csr);
+            }
             if tree.tokens.get(&children[0]).unwrap().children.len() > 3 && tree.tokens.get(&children[2]).unwrap().tag_u == 3 && tree.tokens.get(&children[2]).unwrap().data.len() > 255{
                 return if all_oids.contains("1.3.6.1.5.5.7.48.10") {
                     Some(Asn1ObjType::Cert)
