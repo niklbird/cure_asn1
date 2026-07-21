@@ -1,9 +1,9 @@
 ## Overview
 
-**cure_asn1** is a Rust library designed for parsing RPKI objects encoded in ASN.1 format, as well as handling RRDP (RPKI Repository Delta Protocol) objects. 
-The library is build for efficiency and flexibility: **It does not enforce any structure or validation checks**. It will parse any well-formated DER/BER encoded object.
+**cure_asn1** is a Rust library designed for parsing objects encoded in ASN.1 format, as well as handling RRDP objects. 
+The library is built for efficiency and flexibility: **It does not enforce any structure or validation checks**. It will parse any well-formated DER/BER encoded object.
 
-Note: This tool is part of the **CURE RPKI Toolchain**.
+Note: This tool is part of the **CURE  Toolchain**.
 
 
 ---
