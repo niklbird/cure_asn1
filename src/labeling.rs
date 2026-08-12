@@ -2,6 +2,7 @@
 //! certificate extensions.
 
 use std::collections::HashMap;
+use std::fmt::Display;
 use crate::labels::LabelName;
 use crate::labels::LabelName::*;
 use crate::tree_parser::{Asn1ObjType, SObjType, Tree, TypeTag};
@@ -414,6 +415,12 @@ impl Label {
 impl From<LabelName> for Label {
     fn from(name: LabelName) -> Label {
         Label { name, index: 0 }
+    }
+}
+
+impl Display for Label {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}", self.name.short_label(), self.index)
     }
 }
 
