@@ -612,16 +612,6 @@ pub enum Asn1ObjType {
 }
 
 impl Asn1ObjType {
-    pub fn to_string(&self) -> String {
-        match self {
-            Self::SignedObj(ect) => format!("Signed Object ({:?})", ect),
-            Self::Cert => "Certificate".to_string(),
-            Self::Tls => "TLS Certificate".to_string(),
-            Self::Crl => "Certificate Revocation List".to_string(),
-            Self::IRoa => "ROA".to_string(),
-            Self::IMft => "Manifest".to_string(),
-        }
-    }
     pub(crate) fn is_signed_obj(&self) -> bool {
         match self {
             Self::SignedObj(_) => true,
@@ -801,7 +791,7 @@ impl Tree {
         self.tokens.insert(new_id, new_token);
         self.tokens.get_mut(&parent).unwrap().children.push(new_id);
         if label.is_some(){
-            self.labels.insert(label.unwrap().clone(), new_id);
+            self.labels.insert(label.unwrap(), new_id);
         }
         return new_id;
     }
@@ -1622,6 +1612,13 @@ impl Tree {
         let mut c = 0;
         let mut s = String::new();
 
+        let descr = || {
+            node.info
+                .as_ref()
+                .map(|l| l.to_string())
+                .unwrap_or_else(|| node_id.to_string())
+        };
+
         match node.tag {
             TypeTag::Sequence => {
                 if node.children.len() > 0 {
@@ -1632,22 +1629,12 @@ impl Tree {
                         s += &res.1;
                     }
                 } else {
-                    let descr = node
-                        .info
-                        .clone()
-                        .map(|l| format!("{}.{}", l.name.short_label(), l.index))
-                        .unwrap_or_else(|| node_id.to_string());
-
-                    s += &format!("{} [{}] \n", space, descr);
+                    s += &format!("{} [{}] \n", space, descr());
                     c += 1;
                 }
                 return (c, s);
             }
             TypeTag::TLV => {
-                let descr = node
-                    .info.clone()
-                    .map(|l| format!("{}.{}", l.name.short_label(), l.index))
-                    .unwrap_or_else(|| node_id.to_string());
                 if node.children.len() > 0 {
                     for item in &node.children {
                         // Recursive handling of the sequence items, which are also `GenericObject`s.
@@ -1658,7 +1645,7 @@ impl Tree {
                     return (c, s);
                 }
 
-                let s = format!("{} [{}] Typ{} {:?}\n", space, descr, node.tag_u, node.data);
+                let s = format!("{} [{}] Typ{} {:?}\n", space, descr(), node.tag_u, node.data);
                 return (1, s);
             }
             TypeTag::Set => {
@@ -1671,12 +1658,8 @@ impl Tree {
                 return (c, s);
             }
             TypeTag::OctetString => {
-                let descr = node
-                    .info.clone()
-                    .map(|l| format!("{}.{}", l.name.short_label(), l.index))
-                    .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
-                    s += &format!("{} [{}] Typ4 {:?}\n", space, descr, node.data);
+                    s += &format!("{} [{}] Typ4 {:?}\n", space, descr(), node.data);
                     return (1, s);
                 } else {
                     let res = self.to_string(node.children[0], cur_depth + 1);
@@ -1700,12 +1683,8 @@ impl Tree {
                 }
             }
             TypeTag::BitString => {
-                let descr = node
-                    .info.clone()
-                    .map(|l| format!("{}.{}", l.name.short_label(), l.index))
-                    .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
-                    s += &format!("{} [{}] Typ3 {:?}\n", space, descr, node.data);
+                    s += &format!("{} [{}] Typ3 {:?}\n", space, descr(), node.data);
                     return (1, s);
                 } else {
                     let res = self.to_string(node.children[0], cur_depth + 1);
@@ -1715,12 +1694,8 @@ impl Tree {
                 }
             }
             TypeTag::ObjectIdentifier => {
-                let descr = node
-                    .info.clone()
-                    .map(|l| format!("{}.{}", l.name.short_label(), l.index))
-                    .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
-                    s += &format!("{} [{}] Typ6 {:?}\n", space, descr, node.data);
+                    s += &format!("{} [{}] Typ6 {:?}\n", space, descr(), node.data);
                     return (1, s);
                 } else {
                     let res = self.to_string(node.children[0], cur_depth + 1);
@@ -1730,12 +1705,8 @@ impl Tree {
                 }
             }
             TypeTag::Null => {
-                let descr = node
-                    .info.clone()
-                    .map(|l| format!("{}.{}", l.name.short_label(), l.index))
-                    .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
-                    s += &format!("{} [{}] Typ5 {:?}\n", space, descr, node.data);
+                    s += &format!("{} [{}] Typ5 {:?}\n", space, descr(), node.data);
                     return (1, s);
                 } else {
                     let res = self.to_string(node.children[0], cur_depth + 1);
@@ -1745,12 +1716,8 @@ impl Tree {
                 }
             }
             TypeTag::Cont0 => {
-                let descr = node
-                    .info.clone()
-                    .map(|l| format!("{}.{}", l.name.short_label(), l.index))
-                    .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
-                    s += &format!("{} [{}] Typ128 {:?}\n", space, descr, node.data);
+                    s += &format!("{} [{}] Typ128 {:?}\n", space, descr(), node.data);
                     return (1, s);
                 } else {
                     let res = self.to_string(node.children[0], cur_depth + 1);
@@ -1760,12 +1727,8 @@ impl Tree {
                 }
             }
             TypeTag::Integer => {
-                let descr = node
-                    .info.clone()
-                    .map(|l| format!("{}.{}", l.name.short_label(), l.index))
-                    .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
-                    s += &format!("{} [{}] Typ2 {:?}\n", space, descr, node.data);
+                    s += &format!("{} [{}] Typ2 {:?}\n", space, descr(), node.data);
                     return (1, s);
                 } else {
                     let res = self.to_string(node.children[0], cur_depth + 1);
@@ -1775,12 +1738,8 @@ impl Tree {
                 }
             }
             TypeTag::IA5String => {
-                let descr = node
-                    .info.clone()
-                    .map(|l| format!("{}.{}", l.name.short_label(), l.index))
-                    .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
-                    s += &format!("{} [{}] Typ22 {:?}\n", space, descr, node.data);
+                    s += &format!("{} [{}] Typ22 {:?}\n", space, descr(), node.data);
                     return (1, s);
                 } else {
                     let res = self.to_string(node.children[0], cur_depth + 1);
