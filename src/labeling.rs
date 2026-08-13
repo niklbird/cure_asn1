@@ -1283,3 +1283,17 @@ pub fn label_tree(typ: Asn1ObjType) -> Option<LabelObject> {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_to_string() {
+        let label = Label {
+            name: SignedObjectContentInfo,
+            index: 0,
+        };
+        assert_eq!(label.to_string(), "contentInfo.0");
+    }
+}

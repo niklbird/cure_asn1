@@ -200,7 +200,7 @@ impl Token {
     }
 
     pub fn to_string_val(&self) -> (String, (u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, String, Vec<u8>)) {
-        let info_str = self.info.clone().map(|l| format!("{:?}", l)).unwrap_or_default();
+        let info_str = self.info.clone().map(|l| l.to_string()).unwrap_or_default();
 
         let tag_display = format!("{:?}", &self.visual_tag[0]);
         let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
@@ -291,8 +291,8 @@ impl Token {
 
     /// Returns: (What should be shown when clicked, what should be shown in overview, binary data for hex representation)
     pub fn to_string_pretty(&self) -> (String, (u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, String, Vec<u8>)){
-        let info_str = self.info.clone().map(|l| format!("{:?}", l)).unwrap_or_default();
-        match self.tag_u{
+        let info_str = self.info.clone().map(|l| l.to_string()).unwrap_or_default();
+        match self.tag_u {
             0x01 => {
                 let tag_display = if self.tag_u == self.visual_tag[0] {
                     "BOOLEAN".to_string()
@@ -331,7 +331,7 @@ impl Token {
                     format!("[tag {} (original SEQUENCE)]", self.visual_tag[0])
                 };
 
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} nodes)", self.children.len());
@@ -349,7 +349,7 @@ impl Token {
                     format!("[tag {} (original SET)]", self.visual_tag[0])
                 };
 
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} nodes)", self.children.len());
@@ -367,7 +367,7 @@ impl Token {
                     format!("[tag {} (original OCTETSTRING)]", self.visual_tag[0])
                 };
 
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} byte)", self.visual_length);
@@ -408,7 +408,7 @@ impl Token {
                     format!("[tag {} (original OBJECT IDENTIFIER)]", self.visual_tag[0])
                 };
 
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} byte)", self.visual_length);
@@ -432,7 +432,7 @@ impl Token {
                 } else {
                     format!("[tag {} (original INTEGER)]", self.visual_tag[0])
                 };
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
@@ -451,7 +451,7 @@ impl Token {
                 } else {
                     format!("[tag {} (original [{}])]", self.visual_tag[0], counter)
                 };
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
@@ -469,7 +469,7 @@ impl Token {
                 } else {
                     format!("[tag {} (original TIME)]", self.visual_tag[0])
                 };
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = "".to_string();
@@ -495,7 +495,7 @@ impl Token {
                 } else {
                     format!("[tag {} (original UTCTIME)]", self.visual_tag[0])
                 };
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} byte)", self.visual_length);
@@ -515,7 +515,7 @@ impl Token {
                 } else {
                     format!("[tag {} (original GENERALIZEDTIME)]", self.visual_tag[0])
                 };
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} byte)", self.visual_length);
@@ -535,7 +535,7 @@ impl Token {
                 } else {
                     format!("[tag {} (original STRING)]", self.visual_tag[0])
                 };
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
@@ -558,7 +558,7 @@ impl Token {
                 } else {
                     format!("[tag {} (original BITSTRING)]", self.visual_tag[0])
                 };
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
                 let len_display = if self.data.len() == 0{format!(
