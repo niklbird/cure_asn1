@@ -2,6 +2,7 @@
 //! certificate extensions.
 
 use std::collections::HashMap;
+use std::fmt::Display;
 use crate::labels::LabelName;
 use crate::labels::LabelName::*;
 use crate::tree_parser::{Asn1ObjType, SObjType, Tree, TypeTag};
@@ -364,7 +365,7 @@ fn label_fn_mft<'a>(id: usize, tree: &Tree) -> (Label, Vec<LabelObject>) {
 /// A label consists of a [`LabelName`], which is uniquely derived from the ASN.1 object
 /// specification(s) and an index to differentiate nodes of the same name.
 #[derive(
-    Clone, Debug, PartialEq, Eq, Copy, serde::Serialize, serde::Deserialize, Hash, PartialOrd, Ord,
+    Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, Hash, PartialOrd, Ord,
 )]
 pub struct Label {
     pub name: LabelName,
@@ -414,6 +415,12 @@ impl Label {
 impl From<LabelName> for Label {
     fn from(name: LabelName) -> Label {
         Label { name, index: 0 }
+    }
+}
+
+impl Display for Label {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}", self.name.short_label(), self.index)
     }
 }
 
@@ -1360,5 +1367,19 @@ pub fn label_tree(typ: Asn1ObjType) -> Option<LabelObject> {
             //
             // Some(content_info)
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_to_string() {
+        let label = Label {
+            name: SignedObjectContentInfo,
+            index: 0,
+        };
+        assert_eq!(label.to_string(), "contentInfo.0");
     }
 }

@@ -200,7 +200,7 @@ impl Token {
     }
 
     pub fn to_string_val(&self) -> (String, (u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, String, Vec<u8>)) {
-        let info_str = self.info.map(|l| format!("{:?}", l)).unwrap_or_default();
+        let info_str = self.info.clone().map(|l| l.to_string()).unwrap_or_default();
 
         let tag_display = format!("{:?}", &self.visual_tag[0]);
         let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
@@ -221,7 +221,7 @@ impl Token {
         if self.data.len() == 0{
             return "".to_string();
         }
-        if let Some(label) = self.info {
+        if let Some(label) = self.info.clone() {
             let ip_fam = if label.is_ipv4() {
                 Some(2)
             } else if label.is_ipv6() {
@@ -254,7 +254,7 @@ impl Token {
         }
         let human_readable = format!("0x{}", hex::encode(&self.data));
 
-        if let Some(info) = self.info {
+        if let Some(info) = self.info.clone() {
             if info.is_afi() {
                 if self.data == [0, 1]{
                     return ("IPv4 (0x01)".to_string(), human_readable);
@@ -291,8 +291,8 @@ impl Token {
 
     /// Returns: (What should be shown when clicked, what should be shown in overview, binary data for hex representation)
     pub fn to_string_pretty(&self) -> (String, (u8, String, Vec<u8>), (usize, String, Vec<u8>), (String, String, String, Vec<u8>)){
-        let info_str = self.info.map(|l| format!("{:?}", l)).unwrap_or_default();
-        match self.tag_u{
+        let info_str = self.info.clone().map(|l| l.to_string()).unwrap_or_default();
+        match self.tag_u {
             0x01 => {
                 let tag_display = if self.tag_u == self.visual_tag[0] {
                     "BOOLEAN".to_string()
@@ -331,7 +331,7 @@ impl Token {
                     format!("[tag {} (original SEQUENCE)]", self.visual_tag[0])
                 };
 
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} nodes)", self.children.len());
@@ -349,7 +349,7 @@ impl Token {
                     format!("[tag {} (original SET)]", self.visual_tag[0])
                 };
 
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} nodes)", self.children.len());
@@ -367,7 +367,7 @@ impl Token {
                     format!("[tag {} (original OCTETSTRING)]", self.visual_tag[0])
                 };
 
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} byte)", self.visual_length);
@@ -408,7 +408,7 @@ impl Token {
                     format!("[tag {} (original OBJECT IDENTIFIER)]", self.visual_tag[0])
                 };
 
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} byte)", self.visual_length);
@@ -432,7 +432,7 @@ impl Token {
                 } else {
                     format!("[tag {} (original INTEGER)]", self.visual_tag[0])
                 };
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
@@ -451,7 +451,7 @@ impl Token {
                 } else {
                     format!("[tag {} (original [{}])]", self.visual_tag[0], counter)
                 };
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
@@ -469,7 +469,7 @@ impl Token {
                 } else {
                     format!("[tag {} (original TIME)]", self.visual_tag[0])
                 };
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = "".to_string();
@@ -495,7 +495,7 @@ impl Token {
                 } else {
                     format!("[tag {} (original UTCTIME)]", self.visual_tag[0])
                 };
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} byte)", self.visual_length);
@@ -515,7 +515,7 @@ impl Token {
                 } else {
                     format!("[tag {} (original GENERALIZEDTIME)]", self.visual_tag[0])
                 };
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
                 let len_display = format!("({} byte)", self.visual_length);
@@ -535,7 +535,7 @@ impl Token {
                 } else {
                     format!("[tag {} (original STRING)]", self.visual_tag[0])
                 };
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
 
@@ -558,7 +558,7 @@ impl Token {
                 } else {
                     format!("[tag {} (original BITSTRING)]", self.visual_tag[0])
                 };
-                let tag_display = format!("{:?}  {} ", &self.info, dv);
+                let tag_display = dv;
 
                 let tag_val = (self.tag_u, tag_display, self.visual_tag.clone());
                 let len_display = if self.data.len() == 0{format!(
@@ -732,11 +732,11 @@ impl Tree {
         let mut token = Token::new(TypeTag::from_type_id(tag), content.len(), content, parent, new_id, tag);
 
         token.visual_tag = vec![tag];
-        token.info = label;
+        token.info = label.clone();
         token.tainted = true;
 
         if let Some(label) = label {
-            self.labels.insert(label, new_id);
+            self.labels.insert(label.clone(), new_id);
         }
         self.tokens.insert(new_id, token);
 
@@ -992,7 +992,7 @@ impl Tree {
         let parent = self.tokens.get_mut(&node_id).unwrap().parent;
         *self.tokens.get_mut(&node_id).unwrap() = new_nodes[&new_node_id].clone();
         if let Some(label) = &new_nodes[&new_node_id].info {
-            self.labels.insert(*label, node_id);
+            self.labels.insert(label.clone(), node_id);
         }
 
         // Find next insertion location
@@ -1404,7 +1404,7 @@ impl Tree {
         // Some labels might need to be generated dynamically (adapted to the tree structure)
         // -> Call the label function if available to generate the labels for the current node dynamically
         match label_obj {
-            LabelObject::Label { label, children } => self.label_children(id, *label, children),
+            LabelObject::Label { label, children } => self.label_children(id, label.clone(), children),
             LabelObject::Function { label_function } => {
                 let (label, children) = label_function(id, self);
                 self.label_children(id, label, &children)
@@ -1413,7 +1413,7 @@ impl Tree {
     }
 
     fn label_children(&mut self, id: usize, label: Label, children: &Vec<LabelObject>) {
-        self.tokens.get_mut(&id).unwrap().info = Some(label);
+        self.tokens.get_mut(&id).unwrap().info = Some(label.clone());
         self.labels.insert(label, id);
 
         for i in 0..children.len() {
@@ -1619,6 +1619,13 @@ impl Tree {
         let mut c = 0;
         let mut s = String::new();
 
+        let descr = || {
+            node.info
+                .as_ref()
+                .map(|l| l.to_string())
+                .unwrap_or_else(|| node_id.to_string())
+        };
+
         match node.tag {
             TypeTag::Sequence => {
                 if node.children.len() > 0 {
@@ -1629,21 +1636,12 @@ impl Tree {
                         s += &res.1;
                     }
                 } else {
-                    let descr = node
-                        .info
-                        .map(|l| format!("{}.{}", l.name.short_label(), l.index))
-                        .unwrap_or_else(|| node_id.to_string());
-
-                    s += &format!("{} [{}] \n", space, descr);
+                    s += &format!("{} [{}] \n", space, descr());
                     c += 1;
                 }
                 return (c, s);
             }
             TypeTag::TLV => {
-                let descr = node
-                    .info
-                    .map(|l| format!("{}.{}", l.name.short_label(), l.index))
-                    .unwrap_or_else(|| node_id.to_string());
                 if node.children.len() > 0 {
                     for item in &node.children {
                         // Recursive handling of the sequence items, which are also `GenericObject`s.
@@ -1654,7 +1652,7 @@ impl Tree {
                     return (c, s);
                 }
 
-                let s = format!("{} [{}] Typ{} {:?}\n", space, descr, node.tag_u, node.data);
+                let s = format!("{} [{}] Typ{} {:?}\n", space, descr(), node.tag_u, node.data);
                 return (1, s);
             }
             TypeTag::Set => {
@@ -1667,12 +1665,8 @@ impl Tree {
                 return (c, s);
             }
             TypeTag::OctetString => {
-                let descr = node
-                    .info
-                    .map(|l| format!("{}.{}", l.name.short_label(), l.index))
-                    .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
-                    s += &format!("{} [{}] Typ4 {:?}\n", space, descr, node.data);
+                    s += &format!("{} [{}] Typ4 {:?}\n", space, descr(), node.data);
                     return (1, s);
                 } else {
                     let res = self.to_string(node.children[0], cur_depth + 1);
@@ -1696,12 +1690,8 @@ impl Tree {
                 }
             }
             TypeTag::BitString => {
-                let descr = node
-                    .info
-                    .map(|l| format!("{}.{}", l.name.short_label(), l.index))
-                    .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
-                    s += &format!("{} [{}] Typ3 {:?}\n", space, descr, node.data);
+                    s += &format!("{} [{}] Typ3 {:?}\n", space, descr(), node.data);
                     return (1, s);
                 } else {
                     let res = self.to_string(node.children[0], cur_depth + 1);
@@ -1711,12 +1701,8 @@ impl Tree {
                 }
             }
             TypeTag::ObjectIdentifier => {
-                let descr = node
-                    .info
-                    .map(|l| format!("{}.{}", l.name.short_label(), l.index))
-                    .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
-                    s += &format!("{} [{}] Typ6 {:?}\n", space, descr, node.data);
+                    s += &format!("{} [{}] Typ6 {:?}\n", space, descr(), node.data);
                     return (1, s);
                 } else {
                     let res = self.to_string(node.children[0], cur_depth + 1);
@@ -1726,12 +1712,8 @@ impl Tree {
                 }
             }
             TypeTag::Null => {
-                let descr = node
-                    .info
-                    .map(|l| format!("{}.{}", l.name.short_label(), l.index))
-                    .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
-                    s += &format!("{} [{}] Typ5 {:?}\n", space, descr, node.data);
+                    s += &format!("{} [{}] Typ5 {:?}\n", space, descr(), node.data);
                     return (1, s);
                 } else {
                     let res = self.to_string(node.children[0], cur_depth + 1);
@@ -1741,12 +1723,8 @@ impl Tree {
                 }
             }
             TypeTag::Cont0 => {
-                let descr = node
-                    .info
-                    .map(|l| format!("{}.{}", l.name.short_label(), l.index))
-                    .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
-                    s += &format!("{} [{}] Typ128 {:?}\n", space, descr, node.data);
+                    s += &format!("{} [{}] Typ128 {:?}\n", space, descr(), node.data);
                     return (1, s);
                 } else {
                     let res = self.to_string(node.children[0], cur_depth + 1);
@@ -1756,12 +1734,8 @@ impl Tree {
                 }
             }
             TypeTag::Integer => {
-                let descr = node
-                    .info
-                    .map(|l| format!("{}.{}", l.name.short_label(), l.index))
-                    .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
-                    s += &format!("{} [{}] Typ2 {:?}\n", space, descr, node.data);
+                    s += &format!("{} [{}] Typ2 {:?}\n", space, descr(), node.data);
                     return (1, s);
                 } else {
                     let res = self.to_string(node.children[0], cur_depth + 1);
@@ -1771,12 +1745,8 @@ impl Tree {
                 }
             }
             TypeTag::IA5String => {
-                let descr = node
-                    .info
-                    .map(|l| format!("{}.{}", l.name.short_label(), l.index))
-                    .unwrap_or_else(|| node_id.to_string());
                 if node.children.is_empty() {
-                    s += &format!("{} [{}] Typ22 {:?}\n", space, descr, node.data);
+                    s += &format!("{} [{}] Typ22 {:?}\n", space, descr(), node.data);
                     return (1, s);
                 } else {
                     let res = self.to_string(node.children[0], cur_depth + 1);
@@ -1812,7 +1782,7 @@ impl Tree {
         }
         for id in &node.children {
             let child_node = self.get_node(*id).unwrap();
-            if child_node.info == Some(path[0]) {
+            if child_node.info == Some(path[0].clone()) {
                 return self.get_id_by_path_rec(child_node, &path[1..]);
             }
         }
@@ -1930,7 +1900,7 @@ impl Tree {
                 if new_token.parent == new_root {
                     new_token.parent = id;
                 }
-                if let Some(label) = new_token.info {
+                if let Some(label) = new_token.info.clone() {
                     self.labels.insert(label, new_token.id);
                 }
                 self.tokens.insert(new_token.id, new_token);

@@ -24,6 +24,7 @@ use std::fmt::Display;
 use crate::labels::LabelName;
 use crate::rpki::rpki_utils;
 
+/// Deprecated. Use [RpkiObject::parse_as]
 #[deprecated]
 pub fn parse_rpki_object(data: &Vec<u8>, typ: ObjectType) -> Option<RpkiObject> {
     RpkiObject::parse_as(data, typ)
@@ -420,8 +421,15 @@ impl RpkiObject {
         return Some(number);
     }
 
-    pub fn get_cert_ski(&self) -> Option<String> {
+    pub fn _get_cert_ski(&self) -> Option<String> {
         let data = self.content.get_raw_by_label(&LabelName::CertExtSkiValue.into())?;
+        Some(hex::encode(data))
+    }
+
+    pub fn get_cert_ski(&self) -> Option<String> {
+        let data = self
+            .content
+            .get_raw_by_label(&LabelName::CertExtSkiKeyIdentifier.into())?;
         Some(hex::encode(data))
     }
 
