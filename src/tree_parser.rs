@@ -721,6 +721,12 @@ impl Tree {
         }
     }
 
+    pub fn remove_node_by_label(&mut self, label: &Label){
+        if let Some(val) = self.labels.get(label){
+            self.tokens.remove(val);
+        }
+    }
+
     pub fn add_node(&mut self, tag: u8, content: Vec<u8>, parent: usize, label: Option<Label>, child_position: Option<usize>) -> usize {
         let new_id = self.cur_index + 1;
         let mut token = Token::new(TypeTag::from_type_id(tag), content.len(), content, parent, new_id, tag);
@@ -1047,6 +1053,7 @@ impl Tree {
                 if !self.tokens.contains_key(&id) {
                     return true;
                 }
+                
                 return self.tokens.get(id).unwrap().manipulated;
             }
             None => {
@@ -1790,7 +1797,7 @@ impl Tree {
         }
     }
 
-    pub fn set_data(&mut self, path: &[Label], data: &Vec<u8>, tag_type: TypeTag) {
+    pub fn set_data(&mut self, path: &[Label], data: &Vec<u8>, tag_type: TypeTag, manipulated: bool) {
         let id = self.get_id_by_path(path).unwrap();
         let node = self.get_node_mut(id).unwrap();
         node.data = data.to_vec();
@@ -1798,7 +1805,8 @@ impl Tree {
         node.visual_length = data.len();
         node.tag = tag_type.clone();
         node.tainted = true;
-        node.manipulated = true;
+        
+        node.manipulated = manipulated;
         node.visual_tag = [tag_type.to_type_id()].to_vec();
         self.taint_parents(id);
     }
@@ -1967,7 +1975,7 @@ impl Tree {
                     let n = self.get_node(id).unwrap();
                     let data = self.encode_node_content(n, true);
                     self.deep_delete_children(id);
-                    self.set_data(&p, &data, TypeTag::OctetString);
+                    self.set_data(&p, &data, TypeTag::OctetString, false);
                 }
             }
             Cert => {
@@ -1977,7 +1985,7 @@ impl Tree {
                     let n = self.get_node(id).unwrap();
                     let data = self.encode_node_content(n, true);
                     self.deep_delete_children(id);
-                    self.set_data(&p, &data, TypeTag::OctetString);
+                    self.set_data(&p, &data, TypeTag::OctetString, false);
                 }
             }
             Crl => {}
@@ -1992,7 +2000,7 @@ impl Tree {
                     let n = self.get_node(id).unwrap();
                     let data = self.encode_node_content(n, true);
                     self.deep_delete_children(id);
-                    self.set_data(&p, &data, TypeTag::OctetString);
+                    self.set_data(&p, &data, TypeTag::OctetString, false);
                 }
             }
             _ => {}

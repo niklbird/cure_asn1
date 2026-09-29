@@ -831,6 +831,75 @@ pub fn label_empty_crl() -> LabelObject {
     cert_choices
 }
 
+
+pub fn label_function_issuer<'a>(id: usize, tree: &Tree) -> (Label, Vec<LabelObject>){
+    let mut labels = Vec::new();
+
+    for child_id in &tree.get_node(id).unwrap().children {
+        let child = tree.get_node(*child_id).unwrap();
+        let child = tree.get_node(child.children[0]).unwrap();
+        if child.children.len() == 0 {
+            continue;
+        }
+        let oid = parse_oid(&tree.get_node(child.children[0]).unwrap().data);
+        if oid == "2.5.4.5"{ // serial
+            let label_obj = LabelObject::label(
+                CertFldIssuerRdnSet.into(),
+                vec![
+                    LabelObject::label(
+                        CertFldIssuerAttributeTypeAndValue.into(),
+                        vec![
+                            CertFldIssuerAttributeType.into(),
+                            CertFldIssuerAttributeValueSerial.into(),
+                        ],
+                    ),
+                ],
+            );
+                labels.push(label_obj);
+        }
+        else if oid == "2.5.4.3"{ // issuer name
+            let label_obj = LabelObject::label(
+                CertFldIssuerRdnSet.into(),
+                vec![
+                    LabelObject::label(
+                        CertFldIssuerAttributeTypeAndValue.into(),
+                        vec![
+                            CertFldIssuerAttributeType.into(),
+                            CertFldIssuerAttributeValueCN.into(),
+                        ],
+                    ),
+                ],
+            );
+            labels.push(label_obj);
+        }
+        else{
+            let label_obj = LabelObject::label(
+                CertFldIssuerRdnSet.into(),
+                vec![
+                    LabelObject::label(
+                        CertFldIssuerAttributeTypeAndValue.into(),
+                        vec![
+                            CertFldIssuerAttributeType.into(),
+                            CertFldIssuerAttributeValue.into(),
+                        ],
+                    ),
+                ],
+            );
+            labels.push(label_obj);
+
+        }
+    }
+
+
+    
+    (CertFldIssuer.into(), labels)
+
+}
+
+
+
+
+
 pub fn label_certificate(typ: Asn1ObjType) -> LabelObject {
     let version = LabelObject::label(CertFldVersionSeq.into(), vec![CertFldVersion.into()]);
 
@@ -890,19 +959,36 @@ pub fn label_certificate(typ: Asn1ObjType) -> LabelObject {
     //         )])],
     // );
 
-    let issuer = LabelObject::label(
-        CertFldIssuer.into(),
-        vec![LabelObject::label(
-            CertFldIssuerRdnSet.into(),
-            vec![LabelObject::label(
-                CertFldIssuerAttributeTypeAndValue.into(),
-                vec![
-                    CertFldIssuerAttributeType.into(),
-                    CertFldIssuerAttributeValue.into(),
-                ],
-            )],
-        )],
-    );
+    let issuer = LabelObject::function(label_function_issuer);
+    // let issuer = LabelObject::label(
+    //     CertFldIssuer.into(),
+    //     vec![issuer_fn],
+    // );
+    //     CertFldIssuer.into(),
+    //     vec![LabelObject::label(
+    //         Label::new(CertFldIssuerRdnSet, 0),
+    //         vec![LabelObject::label(
+    //             CertFldIssuerAttributeTypeAndValue.into(),
+    //             vec![
+    //                 CertFldIssuerAttributeType.into(),
+    //                 CertFldIssuerAttributeValue.into(),
+    //             ],
+    //         )],
+            
+    //     ),
+    //     LabelObject::label(
+    //         Label::new(CertFldIssuerRdnSet, 1),
+    //         vec![LabelObject::label(
+    //             CertFldIssuerAttributeTypeAndValue.into(),
+    //             vec![
+    //                 CertFldIssuerAttributeType.into(),
+    //                 CertFldIssuerAttributeValue.into(),
+    //             ],
+    //         )],
+            
+    //     ),
+    //     ],
+    // );
 
     let validity = LabelObject::label(
         CertFldValidity.into(),
@@ -988,7 +1074,7 @@ pub fn label_certificate(typ: Asn1ObjType) -> LabelObject {
                 CertFldSubjectPublicKeyInfoAlgorithm.into(),
                 vec![
                     CertFldSubjectPublicKeyInfoAlgorithmId.into(),
-                    CertFldSubjectPublicKeyInfoAlgorithmParameters.into(),
+                    CertFldSubjectPublicKeyInfoAlgorithmParameters.into(), 
                 ],
             ),
             CertFldSubjectPublicKeyInfoPublicKey.into(),

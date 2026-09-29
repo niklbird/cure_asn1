@@ -1,6 +1,5 @@
 
-/// A [`LabelName`] uniquely names a specific token in an ASN.1 tree of an RPKI object (certificate,
-/// CMS signed object, etc.).
+/// A [`LabelName`] uniquely names a specific token in an ASN.1 tree
 #[rustfmt::skip]
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, Hash, PartialOrd, Ord)]
 pub enum LabelName {
@@ -92,6 +91,8 @@ pub enum LabelName {
     CertFldIssuerAttributeTypeAndValue,
     CertFldIssuerAttributeType,
     CertFldIssuerAttributeValue,
+    CertFldIssuerAttributeValueCN,
+    CertFldIssuerAttributeValueSerial,
     CertFldExtensions,
     CertFldExtensionsSeq,
     CertFldValidity,
@@ -370,6 +371,8 @@ impl LabelName {
             CertFldIssuerAttributeTypeAndValue => "certIssuerAttributeTypeAndValue".into(),
             CertFldIssuerAttributeType => "certIssuerAttributeType".into(),
             CertFldIssuerAttributeValue => "certIssuerAttributeValue".into(),
+            CertFldIssuerAttributeValueCN => "certIssuerAttributeValueCN".into(),
+            CertFldIssuerAttributeValueSerial => "certIssuerAttributeValueSerial".into(),
             CertFldExtensions => "certExtensions".into(),
             CertFldExtensionsSeq => "certExtensionsSeq".into(),
             CertFldValidity => "certValidity".into(),
@@ -386,7 +389,6 @@ impl LabelName {
             CertFldSubjectPublicKeyInfoAlgorithmParameters => "certSubjectPublicKeyInfoAlgorithmParameters".into(),
             CertFldSubjectPublicKeyInfoPublicKey => "certSubjectPublicKeyInfoPublicKey".into(),
             CrlFldEntries => "crlEntries".into(),
-
             // Authority Key Identifier
             CertExtAki => "authorityKeyIdentifierExt".into(),
             CertExtAkiOid => "authorityKeyIdentifierOid".into(),
