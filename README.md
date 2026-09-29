@@ -35,7 +35,7 @@ cure_asn1 = {path="path/to/cure_asn1/"}
 ## Usage
 Parse RPKI objects by calling 
 ```rust
-cure_asn1::rpki::parse_rpki_object(). 
+cure_asn1::rpki::rpki::parse_rpki_object(). 
 ```
 
 Each object is represented as a labled Abstract Syntax Tree (*tree_parser::Tree*). Access a field of the tree through its *label* or its *tree node*.
@@ -62,8 +62,8 @@ Contributions are welcome! Please follow these steps:
 
 ## License
 
-This project is licensed under the **MIT License**. See [LICENSE](LICENSE) for details.
+This project is licensed under the **GPL3 License**. See [LICENSE](LICENSE) for details.
 
 ---
 
-⭐ **If you find this project useful, consider giving it a star!** ⭐
+**Made with ❤️ for RPKI**
