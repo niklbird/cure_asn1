@@ -109,6 +109,7 @@ pub fn proc_nested(
 
     let start_cursor = cursor;
     while cursor + 2 < data.len() {
+        let tag_pos = cursor; 
         let tag = data[cursor];
         let constructed = tag_is_constructed(tag);
 
@@ -150,9 +151,7 @@ pub fn proc_nested(
                         .position(|window| window == [0, 0]);
 
                     if first_occurrence.is_none() {
-                        return Err(ASN1Error {
-                            message: "No end of content marker found".to_string(),
-                        });
+                        return Err(ASN1Error::new("No end of content marker found".to_string()).at(tag_pos));
                     }
 
                     let mut first_occurrence = first_occurrence.unwrap();
@@ -175,9 +174,7 @@ pub fn proc_nested(
                     let len = first_occurrence;
 
                     if data.len() < cursor + len {
-                        return Err(ASN1Error {
-                            message: "Length longer than Data1".to_string(),
-                        });
+                        return Err(ASN1Error::new("Length longer than Data1".to_string()).at(tag_pos));
                     }
 
                     content.extend(encode_asn1_length(first_occurrence));
@@ -196,7 +193,7 @@ pub fn proc_nested(
                     return Err(nested.err().unwrap());
                 }
             } else {
-                let (len, len_size) = parse_length(&data[cursor..])?;
+                let (len, len_size) = parse_length(&data[cursor..]).map_err(|e| e.at(cursor))?;
 
                 content.extend(&data[cursor..cursor + len_size]);
                 cursor += len_size;
@@ -213,9 +210,7 @@ pub fn proc_nested(
                             || nested.as_ref().unwrap().0.len() == 20)
                     {
                         if data.len() < cursor + len {
-                            return Err(ASN1Error {
-                                message: "Length longer than Data2".to_string(),
-                            });
+                            return Err(ASN1Error::new("Length longer than Data2".to_string()).at(tag_pos));
                         }
                         content.extend(&data[cursor..cursor + len]);
 
@@ -253,9 +248,7 @@ pub fn proc_nested(
                     .position(|window| window == [0, 0]);
 
                 if first_occurrence.is_none() {
-                    return Err(ASN1Error {
-                        message: "No end of content marker found".to_string(),
-                    });
+                    return Err(ASN1Error::new("No end of content marker found".to_string()).at(tag_pos));
                 }
 
                 let mut first_occurrence = first_occurrence.unwrap();
@@ -278,9 +271,7 @@ pub fn proc_nested(
                 let len = first_occurrence;
 
                 if data.len() < cursor + len {
-                    return Err(ASN1Error {
-                        message: "Length longer than Data3".to_string(),
-                    });
+                    return Err(ASN1Error::new("Length longer than Data3".to_string()).at(tag_pos));
                 }
 
                 content.extend(encode_asn1_length(first_occurrence));
@@ -296,11 +287,9 @@ pub fn proc_nested(
                 // +2 for the 0x00 0x00
                 cursor += len + 2;
             } else {
-                let (len, len_size) = parse_length(&data[cursor..])?;
+                let (len, len_size) = parse_length(&data[cursor..]).map_err(|e| e.at(cursor))?;
                 if data.len() < cursor + len_size + len {
-                    return Err(ASN1Error {
-                        message: "Length longer than Data4".to_string(),
-                    });
+                    return Err(ASN1Error::new("Length longer than Data4".to_string()).at(tag_pos));
                 }
 
                 content.extend(&data[cursor..cursor + len_size]);
@@ -319,18 +308,19 @@ pub fn proc_nested(
         }
         if cursor >= data.len()
             || length.is_some() && cursor - start_cursor >= length.unwrap()
-            || length.is_none() && data[cursor] == 0 && data[cursor + 1] == 0
+            || length.is_none() && data.get(cursor) == Some(&0) && data.get(cursor + 1) == Some(&0)
         {
-            if cursor < data.len() && length.is_none() && data[cursor] == 0 && data[cursor + 1] == 0
+            if cursor < data.len() && length.is_none() && data.get(cursor) == Some(&0) && data.get(cursor + 1) == Some(&0)
             {
                 cursor += 2;
             }
             return Ok((content, cursor, elements));
         }
     }
-    return Err(ASN1Error {
-        message: "No end of content marker found".to_string(),
-    });
+    return Err(
+        ASN1Error::new("No end of content marker found".to_string())
+            .at(cursor.min(data.len().saturating_sub(1)))
+    );
 }
 
 pub fn convert_ber_to_der(data: &Vec<u8>) -> Result<Vec<u8>, ASN1Error> {
@@ -373,17 +363,13 @@ pub fn parse_length(data: &[u8]) -> Result<(usize, usize), ASN1Error> {
         let num_length_octets = (first_byte & 0x7F) as usize;
 
         if num_length_octets > 15 {
-            return Err(ASN1Error {
-                message: format!("Length longer than 8 octets: {:?}", data),
-            });
+            return Err(ASN1Error::new(format!("Length longer than 8 octets: {:?}", data)));
         }
 
         for i in 0..num_length_octets {
             length <<= 8;
             if 1 + i >= data.len() {
-                return Err(ASN1Error {
-                    message: "Length longer than Data5".to_string(),
-                });
+                return Err(ASN1Error::new("Length longer than Data5".to_string()));
             }
             length |= data[1 + i] as usize;
         }
@@ -395,11 +381,15 @@ pub fn parse_length(data: &[u8]) -> Result<(usize, usize), ASN1Error> {
 #[derive(Debug)]
 pub struct ASN1Error {
     pub message: String,
+    pub offset: Option<usize>,
 }
 
 impl ASN1Error {
-    pub fn new(message: String) -> ASN1Error {
-        ASN1Error { message }
+    pub fn new(message: String) -> ASN1Error { ASN1Error { message, offset: None } }
+    // setzt den Offset nur, wenn noch keiner gesetzt ist (innerster Fehler gewinnt)
+    pub fn at(mut self, offset: usize) -> ASN1Error {
+        if self.offset.is_none() { self.offset = Some(offset); }
+        self
     }
 }
 
