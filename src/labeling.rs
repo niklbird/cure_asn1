@@ -900,6 +900,54 @@ pub fn label_function_issuer<'a>(id: usize, tree: &Tree) -> (Label, Vec<LabelObj
 
 
 
+/// Labels a TBSCertList. Since version, nextUpdate, revokedCertificates and crlExtensions are
+/// optional, the fields are labeled based on their tags instead of their position.
+fn label_fn_crl<'a>(id: usize, tree: &Tree) -> (Label, Vec<LabelObject>) {
+    let children = &tree.get_node(id).unwrap().children;
+    let tag = |i: usize| children.get(i).map(|c| tree.get_node(*c).unwrap().tag_u);
+
+    let mut labels = vec![];
+    let mut i = 0;
+
+    // version
+    if tag(i) == Some(0x02) {
+        labels.push(CertFldSerialNumber.into());
+        i += 1;
+    }
+
+    let sig_alg_id = LabelObject::label(
+        CertFldSignature.into(),
+        vec![
+            CertFldSignatureAlgorithm.into(),
+            CertFldSignatureParameters.into(),
+        ],
+    );
+    labels.push(sig_alg_id);
+    labels.push(LabelObject::function(label_function_issuer));
+    labels.push(CertFldValidityNotBefore.into());
+    i += 3;
+
+    // nextUpdate (UTCTime or GeneralizedTime)
+    if tag(i) == Some(0x17) || tag(i) == Some(0x18) {
+        labels.push(CertFldValidityNotAfter.into());
+        i += 1;
+    }
+
+    // revokedCertificates
+    if tag(i) == Some(0x30) {
+        labels.push(CrlFldEntries.into());
+        i += 1;
+    }
+
+    // crlExtensions [0]
+    if tag(i) == Some(0xa0) {
+        let ext = LabelObject::function(label_fn_extensions);
+        labels.push(LabelObject::label(CertFldExtensions.into(), vec![ext]));
+    }
+
+    (Certificate.into(), labels)
+}
+
 pub fn label_certificate(typ: Asn1ObjType) -> LabelObject {
     let version = LabelObject::label(CertFldVersionSeq.into(), vec![CertFldVersion.into()]);
 
@@ -1081,24 +1129,11 @@ pub fn label_certificate(typ: Asn1ObjType) -> LabelObject {
         ],
     );
 
-    let crl_entries = CrlFldEntries.into();
-
     let ext = LabelObject::function(label_fn_extensions);
 
     let extensions = LabelObject::label(CertFldExtensions.into(), vec![ext]);
     let certificate = if typ == Asn1ObjType::Crl {
-        LabelObject::label(
-            Certificate.into(),
-            vec![
-                serial,
-                sig_alg_id,
-                issuer,
-                CertFldValidityNotBefore.into(),
-                CertFldValidityNotAfter.into(),
-                crl_entries,
-                extensions,
-            ],
-        )
+        LabelObject::function(label_fn_crl)
     } else {
         LabelObject::label(
             Certificate.into(),
