@@ -123,23 +123,39 @@ pub fn proc_nested(
                 if nested.is_ok() {
                     let (new_content, new_cursor, children) = nested.unwrap();
 
-                    let len = encode_asn1_length(new_content.len());
-                    content.extend(len);
-
                     // De-construct constructed OctetStrings -> They are not required for DER
-                    if constructed && tag == 36{
-                        elements.extend(children);
-                    }
-                    else{
-                        elements.push(create_element(
-                        tag,
-                        new_content.len(),
-                        &new_content,
-                        Some(children),
-                    ));
-                    }
+                    // The chunks are reassembled into a single primitive OctetString, so that
+                    // e.g. a chunked eContent is interpreted like a DER encoded one
+                    if constructed && tag == 36
+                        && children.iter().all(|c| matches!(c, Element::OctetString(_)))
+                    {
+                        let merged = merge_octet_string_chunks(&children);
+                        let merged_content = merged.get_data();
 
-                    content.extend(new_content);
+                        *content.last_mut().unwrap() = 4;
+                        content.extend(encode_asn1_length(merged_content.len()));
+                        content.extend(merged_content);
+
+                        elements.push(merged);
+                    }
+                    else {
+                        let len = encode_asn1_length(new_content.len());
+                        content.extend(len);
+
+                        if constructed && tag == 36{
+                            elements.extend(children);
+                        }
+                        else{
+                            elements.push(create_element(
+                            tag,
+                            new_content.len(),
+                            &new_content,
+                            Some(children),
+                        ));
+                        }
+
+                        content.extend(new_content);
+                    }
 
                     cursor = new_cursor;
                 }
@@ -331,6 +347,20 @@ pub fn proc_nested(
     return Err(ASN1Error {
         message: "No end of content marker found".to_string(),
     });
+}
+
+/// Reassemble the chunks of a BER constructed OctetString into a single primitive OctetString.
+/// The content is inferred the same way as for a definite-length OctetString.
+fn merge_octet_string_chunks(chunks: &[Element]) -> Element {
+    let data: Vec<u8> = chunks.iter().flat_map(|c| c.get_data()).collect();
+    let len = data.len();
+
+    match proc_nested(&data, 0, Some(len)) {
+        Ok((new_content, _, children)) if new_content.len() == len && len != 20 => {
+            create_element(4, len, &new_content, Some(children))
+        }
+        _ => create_element(4, len, &data, None),
+    }
 }
 
 pub fn convert_ber_to_der(data: &Vec<u8>) -> Result<Vec<u8>, ASN1Error> {
