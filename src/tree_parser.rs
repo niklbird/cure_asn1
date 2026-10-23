@@ -18,6 +18,7 @@ use std::{
     fmt,
     str::from_utf8,
 };
+use serde_json::{json, Value as JsonValue};
 
 use crate::asn1_parser::Element;
 use crate::labels::LabelName::{SignedObjectContentInfo, SignedObjectEncapContentInfo};
@@ -687,6 +688,35 @@ impl SObjType {
     }
 }
 
+/// `Label` is a struct, and JSON object keys must be strings, so the label map is
+/// serialized as a list of `(label, id)` pairs instead of a JSON object.
+mod label_map {
+    use super::Label;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::collections::HashMap;
+
+    pub fn serialize<S: Serializer>(map: &HashMap<Label, usize>, s: S) -> Result<S::Ok, S::Error> {
+        let mut entries: Vec<(&Label, &usize)> = map.iter().collect();
+        // Sort so the same tree always produces the same JSON.
+        entries.sort();
+        entries.serialize(s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<HashMap<Label, usize>, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Repr {
+            Pairs(Vec<(Label, usize)>),
+            // Stores written before this change: only an empty map could ever be serialized.
+            LegacyEmpty(HashMap<String, usize>),
+        }
+        Ok(match Repr::deserialize(d)? {
+            Repr::Pairs(pairs) => pairs.into_iter().collect(),
+            Repr::LegacyEmpty(_) => HashMap::new(),
+        })
+    }
+}
+
 /// An arbitrary representation of an ASN.1 token tree.
 #[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct Tree {
@@ -700,6 +730,7 @@ pub struct Tree {
     pub first_rsa: bool,
 
     /// Map a label to an ID
+    #[serde(with = "label_map")]
     pub labels: HashMap<Label, usize>,
     pub mutations: Vec<Mutation>,
     pub additional_info: HashMap<String, Vec<u8>>,
@@ -720,6 +751,132 @@ impl Tree {
             root_id: 0,
         }
     }
+
+    /// Build a JSON representation of the subtree rooted at `node_id`.
+    ///
+    /// Every node becomes an object carrying the name of the field (its label, or the node id if
+    /// the node carries no label), the node id and, for content nodes, the pretty printed content.
+    /// The tag byte and the hex encoded content are stored as well, so that a tree written with
+    /// this function can be read back in with [`Tree::from_json`].
+    pub fn to_json(&self, node_id: usize) -> JsonValue {
+        let node = match self.get_node(node_id) {
+            Some(node) => node,
+            None => return JsonValue::Null,
+        };
+
+        let name = node
+            .info
+            .clone()
+            .map(|l| format!("{}.{}", l.name.short_label(), l.index))
+            .unwrap_or_else(|| node_id.to_string());
+
+        let mut obj = serde_json::Map::new();
+        obj.insert("name".to_string(), json!(name));
+        obj.insert("id".to_string(), json!(node.id));
+        obj.insert("tag".to_string(), json!(node.tag_u));
+        obj.insert("type".to_string(), json!(format!("{:?}", node.tag)));
+
+        if let Some(label) = &node.info {
+            if let Ok(label) = serde_json::to_value(label) {
+                obj.insert("label".to_string(), label);
+            }
+        }
+
+        // Nodes with children hold their value in the children, only leaf content nodes carry
+        // content of their own.
+        if node.tag.is_content() && node.children.is_empty() {
+            let (_, _, _, con_val) = node.to_string_pretty();
+            obj.insert("content".to_string(), json!(con_val.1));
+            obj.insert("content_human".to_string(), json!(con_val.2));
+            obj.insert("data".to_string(), json!(hex::encode(&node.data)));
+        }
+
+        if !node.children.is_empty() {
+            let children: Vec<JsonValue> = node.children.iter().map(|c| self.to_json(*c)).collect();
+            obj.insert("children".to_string(), json!(children));
+        }
+
+        JsonValue::Object(obj)
+    }
+
+    /// Serialize the whole tree into a pretty printed JSON string.
+    pub fn to_json_string(&self) -> String {
+        serde_json::to_string_pretty(&self.to_json(self.root_id)).unwrap_or_default()
+    }
+
+    /// Read an object back from the JSON produced by [`Tree::to_json`].
+    pub fn from_json(json: &str) -> Result<Tree, String> {
+        let value: JsonValue = serde_json::from_str(json).map_err(|e| format!("Invalid JSON: {}", e))?;
+        Tree::from_json_value(&value)
+    }
+
+    /// Read an object back from an already parsed JSON value, see [`Tree::from_json`].
+    pub fn from_json_value(value: &JsonValue) -> Result<Tree, String> {
+        let mut tree = Tree::new();
+        let root_id = tree.node_from_json(value, None)?;
+
+        tree.root_id = root_id;
+        tree.cur_index = tree.tokens.keys().max().cloned().unwrap_or(0);
+        // The lengths are not part of the JSON, they are recomputed from the content instead.
+        tree.fix_sizes(false);
+
+        Ok(tree)
+    }
+
+    /// Restore a single node and, recursively, all its children.
+    fn node_from_json(&mut self, value: &JsonValue, parent: Option<usize>) -> Result<usize, String> {
+        let obj = value
+            .as_object()
+            .ok_or_else(|| "Expected a JSON object for every node".to_string())?;
+
+        let id = obj
+            .get("id")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| "Node is missing the field `id`".to_string())? as usize;
+
+        let tag = obj
+            .get("tag")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| format!("Node {} is missing the field `tag`", id))? as u8;
+
+        if self.tokens.contains_key(&id) {
+            return Err(format!("Duplicate node id {}", id));
+        }
+
+        let data = match obj.get("data").and_then(|v| v.as_str()) {
+            Some(data) => {
+                hex::decode(data).map_err(|e| format!("Node {} has invalid content: {}", id, e))?
+            }
+            None => Vec::new(),
+        };
+
+        // The root is its own parent, just like in a freshly parsed tree.
+        let parent = parent.unwrap_or(id);
+
+        let mut token = Token::new(TypeTag::from_type_id(tag), data.len(), data, parent, id, tag);
+        token.visual_tag = vec![tag];
+
+        if let Some(label) = obj.get("label").filter(|l| !l.is_null()) {
+            let label: Label = serde_json::from_value(label.clone())
+                .map_err(|e| format!("Node {} has an invalid label: {}", id, e))?;
+            self.labels.insert(label.clone(), id);
+            token.info = Some(label);
+        }
+
+        self.tokens.insert(id, token);
+
+        if let Some(children) = obj.get("children").and_then(|v| v.as_array()) {
+            let mut child_ids = Vec::with_capacity(children.len());
+            for child in children {
+                child_ids.push(self.node_from_json(child, Some(id))?);
+            }
+            self.tokens.get_mut(&id).unwrap().children = child_ids;
+        }
+
+        Ok(id)
+    }
+
+
 
     pub fn remove_node_by_label(&mut self, label: &Label){
         if let Some(val) = self.labels.get(label){
@@ -2205,6 +2362,29 @@ mod test {
         }
 
         println!("{:?}", &parsed.content.labels);
+    }
+
+    #[test]
+    fn test_serde_labels_roundtrip() {
+        use crate::labeling::Label;
+        use crate::labels::LabelName;
+
+        let mut tree = crate::tree_parser::Tree::new();
+        tree.labels.insert(Label::new(LabelName::Custom("a".to_string()), 0), 1);
+        tree.labels.insert(Label::new(LabelName::Custom("b".to_string()), 2), 3);
+
+        let json = serde_json::to_string(&tree).expect("labelled tree must serialize");
+        let restored: crate::tree_parser::Tree = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.labels, tree.labels);
+    }
+
+    #[test]
+    fn test_serde_legacy_empty_labels() {
+        let tree = crate::tree_parser::Tree::new();
+        let mut v: serde_json::Value = serde_json::to_value(&tree).unwrap();
+        v["labels"] = serde_json::json!({});
+        let restored: crate::tree_parser::Tree = serde_json::from_value(v).unwrap();
+        assert!(restored.labels.is_empty());
     }
 
     #[test]

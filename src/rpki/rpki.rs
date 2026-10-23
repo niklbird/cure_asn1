@@ -1,9 +1,7 @@
 use std::str::from_utf8;
 
 use crate::{
-    labeling::parse_oid,
-    rpki::rpki_utils::{byt_to_in, parse_ip},
-    tree_parser::Tree,
+    labeling::parse_oid, rpki::rpki_utils::{byt_to_in, parse_ip}, tree_parser::{Asn1ObjType, Tree},
 };
 use base64::{prelude::BASE64_STANDARD, Engine};
 use chrono::{DateTime, TimeZone, Utc};
@@ -649,6 +647,23 @@ impl ObjectType {
             "snapshot" => true,
             "delta" => true,
             _ => false,
+        }
+    }
+
+    pub fn from_asn1_type(typ: &Asn1ObjType) -> ObjectType {
+        match typ{
+            Asn1ObjType::SignedObj(s) => {
+                match s{
+                    crate::tree_parser::SObjType::Roa => ObjectType::ROA,
+                    crate::tree_parser::SObjType::Mft => ObjectType::MFT,
+                    crate::tree_parser::SObjType::Aspa => ObjectType::ASA,
+                    crate::tree_parser::SObjType::Gbr => ObjectType::GBR,
+                    _ => ObjectType::UNKNOWN,
+                }
+            },
+            Asn1ObjType::Crl => ObjectType::CRL,
+            Asn1ObjType::Cert => ObjectType::CERTCA,
+            _ => ObjectType::UNKNOWN,
         }
     }
 
